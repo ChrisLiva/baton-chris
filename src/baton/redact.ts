@@ -4,27 +4,35 @@ import { join } from "node:path";
 export interface RedactPattern {
   regex: RegExp;
   label: string;
+  redactCaptureGroup?: number;
 }
 
 export const DEFAULT_PATTERNS: RedactPattern[] = [
-  // Generic "KEY=value" where KEY looks like a secret
-  { regex: /\b([A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD))\s*[:=]\s*['"]?([A-Za-z0-9_\-+/=]{16,})['"]?/g, label: "secret assignment" },
-  // Anthropic
   { regex: /\bsk-ant-[A-Za-z0-9_\-]{20,}\b/g, label: "Anthropic API key" },
-  // OpenAI
   { regex: /\bsk-[A-Za-z0-9]{20,}\b/g, label: "OpenAI-style API key" },
-  // AWS access key
   { regex: /\bAKIA[0-9A-Z]{16}\b/g, label: "AWS access key ID" },
-  // AWS secret (heuristic; high false positive risk — keep but doc)
-  { regex: /\baws_secret_access_key\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})['"]?/gi, label: "AWS secret access key" },
-  // GitHub PAT classic + fine-grained
+  {
+    regex: /\b(aws_secret_access_key\s*[:=]\s*['"]?)([A-Za-z0-9/+=]{40})(['"]?)/gi,
+    label: "AWS secret access key",
+    redactCaptureGroup: 2,
+  },
   { regex: /\bghp_[A-Za-z0-9]{36,}\b/g, label: "GitHub classic token" },
   { regex: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, label: "GitHub fine-grained token" },
-  // JWT (best-effort)
   { regex: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, label: "JWT" },
-  // Authorization bearer
-  { regex: /\b(Authorization|authorization)\s*:\s*Bearer\s+[A-Za-z0-9_\-.]+/g, label: "Bearer header" },
+  {
+    regex: /\b((?:Authorization|authorization)\s*:\s*Bearer\s+)([A-Za-z0-9_\-.]+)/g,
+    label: "Bearer header",
+    redactCaptureGroup: 2,
+  },
+  {
+    regex: /\b([A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)\s*[:=]\s*['"]?)([A-Za-z0-9_\-+/=]{16,})(['"]?)/g,
+    label: "secret assignment",
+    redactCaptureGroup: 2,
+  },
 ];
+
+const LABELED_PATTERN_DELIMITER = ":::";
+let warnedNoRedact = false;
 
 function parseIgnoreFile(path: string): RedactPattern[] {
   if (!existsSync(path)) return [];
@@ -38,10 +46,10 @@ function parseIgnoreFile(path: string): RedactPattern[] {
     let label = "user pattern";
     let regexStr = line;
 
-    const pipeIndex = line.indexOf("|");
-    if (pipeIndex !== -1) {
-      label = line.substring(0, pipeIndex);
-      regexStr = line.substring(pipeIndex + 1);
+    const delimiterIndex = line.indexOf(LABELED_PATTERN_DELIMITER);
+    if (delimiterIndex !== -1) {
+      label = line.substring(0, delimiterIndex).trim();
+      regexStr = line.substring(delimiterIndex + LABELED_PATTERN_DELIMITER.length).trim();
     }
 
     try {
@@ -69,7 +77,10 @@ export function loadProjectPatterns(cwd: string): RedactPattern[] {
 
 export function redact(body: string, patterns: RedactPattern[]): { body: string; hits: Array<{ label: string; count: number }> } {
   if (process.env.BATON_NO_REDACT === "1") {
-    process.stderr.write("baton: notice: redaction disabled via BATON_NO_REDACT=1\n");
+    if (!warnedNoRedact) {
+      process.stderr.write("baton: notice: redaction disabled via BATON_NO_REDACT=1\n");
+      warnedNoRedact = true;
+    }
     return { body, hits: [] };
   }
 
@@ -81,31 +92,14 @@ export function redact(body: string, patterns: RedactPattern[]): { body: string;
 
     redactedBody = redactedBody.replace(pattern.regex, (match, ...args) => {
       matchCount++;
-      // If there are capturing groups and the first group is a string (key name) and second is the value
-      // we only redact the value. The regex signature might be different depending on whether
-      // the regex uses capturing groups.
-      // String.prototype.replace callback arguments: match, p1, p2, ..., offset, string
 
-      // We can count capturing groups. The generic KEY=value pattern has 2 capturing groups.
-      // AWS secret has 1 capturing group.
-
-      if (args.length >= 4 && typeof args[0] === 'string' && typeof args[1] === 'string') {
-        // Assume first two args are p1 and p2
-        // Find if this looks like our generic KEY=value pattern
-        if (match.includes(args[0]) && match.includes(args[1])) {
-           // We just replace the value part (args[1]) with redacted label
-           // We need to carefully replace args[1] in the original match string, but there could be issues
-           // if the key and value are the same. A safer approach for the specific patterns:
-           return match.replace(args[1], `[redacted ${pattern.label}]`);
+      if (pattern.redactCaptureGroup !== undefined) {
+        const capture = args[pattern.redactCaptureGroup - 1];
+        if (typeof capture === "string") {
+          return match.replace(capture, `[redacted ${pattern.label}]`);
         }
       }
 
-      // AWS secret pattern has 1 capture group: args.length >= 3 and args[0] is string
-      if (pattern.label === "AWS secret access key" && args.length >= 3 && typeof args[0] === 'string') {
-        return match.replace(args[0], `[redacted ${pattern.label}]`);
-      }
-
-      // Default: replace whole match
       return `[redacted ${pattern.label}]`;
     });
 

@@ -1,10 +1,23 @@
-import { describe, expect, test, afterEach, spyOn, beforeEach } from "bun:test";
+import { describe, expect, test, afterEach, beforeEach } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { redact, DEFAULT_PATTERNS, loadUserPatterns, loadProjectPatterns } from "../src/baton/redact.ts";
 
 describe("redact", () => {
+  let originalStderr: typeof process.stderr.write;
+  let stderrOutput = "";
+
+  beforeEach(() => {
+    originalStderr = process.stderr.write;
+    stderrOutput = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrOutput += chunk.toString();
+      return true;
+    }) as typeof process.stderr.write;
+  });
+
   afterEach(() => {
+    process.stderr.write = originalStderr;
     delete process.env.BATON_NO_REDACT;
   });
 
@@ -47,6 +60,13 @@ describe("redact", () => {
     expect(res.body).toBe("aws_secret_access_key = [redacted AWS secret access key]");
   });
 
+  test("prefers specific Anthropic match over generic secret assignment", () => {
+    const text = "ANTHROPIC_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890-abcdefg";
+    const res = redact(text, DEFAULT_PATTERNS);
+    expect(res.body).toBe("ANTHROPIC_KEY=[redacted Anthropic API key]");
+    expect(res.hits).toEqual([{ label: "Anthropic API key", count: 1 }]);
+  });
+
   test("redacts GitHub PAT classic", () => {
     const text = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
     const res = redact(text, DEFAULT_PATTERNS);
@@ -68,7 +88,7 @@ describe("redact", () => {
   test("redacts Bearer header", () => {
     const text = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz1234567890";
     const res = redact(text, DEFAULT_PATTERNS);
-    expect(res.body).toBe("[redacted Bearer header]");
+    expect(res.body).toBe("Authorization: Bearer [redacted Bearer header]");
   });
 
   test("preserves non-secrets", () => {
@@ -84,6 +104,15 @@ describe("redact", () => {
     const res = redact(text, DEFAULT_PATTERNS);
     expect(res.body).toBe(text);
     expect(res.hits).toEqual([]);
+    expect(stderrOutput).toContain("redaction disabled");
+  });
+
+  test("logs BATON_NO_REDACT notice once per process", async () => {
+    process.env.BATON_NO_REDACT = "1";
+    const freshModule = await import(`../src/baton/redact.ts?once=${Date.now()}`);
+    freshModule.redact("first", freshModule.DEFAULT_PATTERNS);
+    freshModule.redact("second", freshModule.DEFAULT_PATTERNS);
+    expect(stderrOutput.match(/redaction disabled/g)?.length).toBe(1);
   });
 });
 
@@ -101,7 +130,7 @@ describe("loadUserPatterns & loadProjectPatterns", () => {
 
   test("loads user patterns correctly", () => {
     const userPath = join(tmpDir, ".claude", "baton-ignore");
-    writeFileSync(userPath, "# comment\n\ncustom token|my-custom-token-[a-z0-9]+\n\\bfoo_bar\\b\n");
+    writeFileSync(userPath, "# comment\n\ncustom token:::my-custom-token-[a-z0-9]+\n\\bfoo_bar\\b\n");
     const patterns = loadUserPatterns(tmpDir);
     expect(patterns.length).toBe(2);
     expect(patterns[0]?.label).toBe("custom token");
@@ -121,23 +150,31 @@ describe("loadUserPatterns & loadProjectPatterns", () => {
 
   test("handles invalid regex gracefully", () => {
     const userPath = join(tmpDir, ".claude", "baton-ignore");
-    writeFileSync(userPath, "foo|invalid[regex\nvalid|bar");
+    writeFileSync(userPath, "foo:::invalid[regex\nvalid:::bar");
 
-    // Silence stderr for this test
     const originalStderr = process.stderr.write;
-    let stderrOutput = "";
+    let localStderrOutput = "";
     process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderrOutput += chunk.toString();
+      localStderrOutput += chunk.toString();
       return true;
-    }) as any;
+    }) as typeof process.stderr.write;
 
     try {
       const patterns = loadUserPatterns(tmpDir);
       expect(patterns.length).toBe(1);
       expect(patterns[0]?.label).toBe("valid");
-      expect(stderrOutput).toContain("invalid regex");
+      expect(localStderrOutput).toContain("invalid regex");
     } finally {
       process.stderr.write = originalStderr;
     }
+  });
+
+  test("supports alternation in labeled ignore patterns", () => {
+    const projectPath = join(tmpDir, ".batonignore");
+    writeFileSync(projectPath, "credential:::(token|secret)[a-z]+\n");
+    const patterns = loadProjectPatterns(tmpDir);
+    expect(patterns.length).toBe(1);
+    expect(patterns[0]?.label).toBe("credential");
+    expect(patterns[0]?.regex?.source).toBe("(token|secret)[a-z]+");
   });
 });
