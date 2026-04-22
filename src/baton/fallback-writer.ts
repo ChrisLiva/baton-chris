@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { readTranscript, isMainChain, type TranscriptEntry } from "../transcript/read.ts";
 import { BATON_REL_PATH, userHomeDir } from "../config.ts";
 import { redact, loadUserPatterns, loadProjectPatterns, DEFAULT_PATTERNS } from "./redact.ts";
@@ -49,7 +49,12 @@ export function extractFilePaths(entries: TranscriptEntry[]): string[] {
   return Array.from(paths.values()).slice(0, 40);
 }
 
-export function writeFallbackBaton(cwd: string, transcriptPath: string, tokens: number): string {
+export function writeFallbackBaton(
+  cwd: string,
+  transcriptPath: string,
+  tokens: number,
+  outPathOverride?: string,
+): string {
   const entries = readTranscript(transcriptPath);
   const mainChain = entries.filter(isMainChain);
 
@@ -123,7 +128,9 @@ ${recentBlocks || "_(no recent turns)_"}
 
   const finalBody = redactedBody + `\n## Redactions\n${redactionsSection}\n`;
 
-  const outPath = join(cwd, BATON_REL_PATH);
+  const outPath = outPathOverride
+    ? (isAbsolute(outPathOverride) ? outPathOverride : join(cwd, outPathOverride))
+    : join(cwd, BATON_REL_PATH);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, finalBody, "utf8");
   return outPath;

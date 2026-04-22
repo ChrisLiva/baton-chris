@@ -110,6 +110,16 @@ Redaction only applies to the fallback writer, not to Claude-authored `/baton` o
 
 To disable entirely (not recommended): `BATON_NO_REDACT=1`.
 
+### Recovering from a lost baton
+
+If you lost a baton but still have the transcript (Claude Code writes them to `~/.claude/projects/<slug>/<session-id>.jsonl`), you can rebuild a best-effort baton:
+
+```bash
+baton reconstruct ~/.claude/projects/my-project/abc123.jsonl
+```
+
+By default this writes to `<cwd>/.claude/baton/BATON.md`. Use `--out` for a custom location. The rebuilt baton uses the same fallback format as the PreCompact auto-write — deterministic, less structured than a Claude-authored baton, but enough to resume.
+
 ## Commands
 
 ```bash
