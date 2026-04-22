@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { renderBar } from "./bar.ts";
-import { color } from "./color.ts";
+import { color, visibleLength } from "./color.ts";
 import {
   renderModel,
   renderBranch,
@@ -174,15 +174,33 @@ export async function renderStatusline(raw: string): Promise<string> {
   const worktreeBranch = data.worktree?.branch;
   const git = worktreeBranch ? { branch: worktreeBranch, dirty: data.worktree?.is_dirty } : gitBranchInfo(data.cwd);
 
-  const parts: (string | null)[] = [
-    renderModel(data.model?.display_name || data.model?.id),
-    renderBranch(git.branch, git.dirty),
-    renderBar(tokens, max),
-    renderBatonBadge(data.cwd, data.session_id, max),
-    renderRateLimit5h(data.rate_limits?.five_hour),
-    renderDuration(data.cost?.total_duration_ms),
-    renderCost(data.cost?.total_cost_usd),
+  const widgets = [
+    { key: "model", text: renderModel(data.model?.display_name || data.model?.id) },
+    { key: "branch", text: renderBranch(git.branch, git.dirty) },
+    { key: "bar", text: renderBar(tokens, max) },
+    { key: "batonBadge", text: renderBatonBadge(data.cwd, data.session_id, max) },
+    { key: "rateLimit", text: renderRateLimit5h(data.rate_limits?.five_hour) },
+    { key: "duration", text: renderDuration(data.cost?.total_duration_ms) },
+    { key: "cost", text: renderCost(data.cost?.total_cost_usd) },
   ];
 
-  return parts.filter((p): p is string => !!p).join(color.dim(SEP_TEXT));
+  let parts = widgets.filter((w): w is { key: string; text: string } => !!w.text);
+
+  const columns = process.stdout.columns;
+  if (columns && columns >= 40) {
+    const DROP_PRIORITY = ["cost", "duration", "rateLimit"];
+    for (const dropKey of DROP_PRIORITY) {
+      const totalLen = parts.reduce((sum, p) => sum + visibleLength(p.text), 0) + Math.max(0, parts.length - 1) * 3;
+      if (totalLen <= columns - 1) {
+        break;
+      }
+      parts = parts.filter((p) => p.key !== dropKey);
+    }
+  } else if (columns !== undefined && columns !== null && columns > 0 && columns < 40) {
+    if (parts.length > 0 && parts[0] !== undefined) {
+      parts = [parts[0]];
+    }
+  }
+
+  return parts.map((p) => p.text).join(color.dim(SEP_TEXT));
 }
