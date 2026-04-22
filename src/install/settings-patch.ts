@@ -16,7 +16,7 @@ import {
   userSkillsDir,
 } from "../config.ts";
 import { color } from "../statusline/color.ts";
-import { readTemplate } from "../baton/template-loader.ts";
+import { readTemplateBodyWithOverride } from "../baton/template-loader.ts";
 
 const STATUSLINE_CMD = buildCommand(SUBCOMMANDS.statusline);
 const HOOK_UPS_CMD = buildCommand(SUBCOMMANDS.hookUps);
@@ -87,6 +87,7 @@ export interface InstallReport {
   batonSkillPath: string;
   migratedCommands: string[];
   migratedSkills: string[];
+  templateSource: "bundled" | "override" | "extended";
 }
 
 function loadSettings(settingsPath: string): Settings {
@@ -501,7 +502,8 @@ export function install(opts: InstallOptions = {}): InstallReport {
   writeFileSync(tmpSettingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
   renameSync(tmpSettingsPath, settingsPath);
 
-  const templateBody = readTemplate();
+  const templateResult = readTemplateBodyWithOverride();
+  const templateBody = templateResult.body;
   const wroteBatonCommand = writeBatonCommand(commandsDir, batonCmdPath, templateBody);
   const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
   const skillResult = writeBatonSkill(skillsDir, batonSkillDir, batonSkillPath, templateBody);
@@ -527,6 +529,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
     batonSkillPath,
     migratedCommands,
     migratedSkills,
+    templateSource: templateResult.source,
   };
 }
 
@@ -560,7 +563,8 @@ export function printReport(r: InstallReport): void {
   lines.push(`  ${tick(r.wroteUserPromptSubmit)}  UserPromptSubmit hook`);
   lines.push(`  ${tick(r.wrotePreCompact)}  PreCompact hook`);
   lines.push(`  ${tick(r.wroteSessionStart)}  SessionStart hook`);
-  lines.push(`  ${tick(r.wroteBatonCommand)}  /baton command`);
+  const templateSuffix = r.templateSource !== "bundled" ? color.dim(` (template: ${r.templateSource})`) : "";
+  lines.push(`  ${tick(r.wroteBatonCommand)}  /baton command${templateSuffix}`);
   lines.push(`  ${tick(r.wroteDropCommand)}  /drop command`);
   lines.push(`  ${tick(r.wroteBatonSkill)}  baton skill`);
 

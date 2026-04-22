@@ -81,6 +81,21 @@ BATON_FRESH_MS=1800000 claude
 SESSION_AGE_NUDGE_MS=10800000 claude  # nudge after 3 hours instead
 ```
 
+### Custom baton template
+
+Create `~/.claude/baton-template.md` to override the default baton skeleton. The file must start with frontmatter:
+
+```yaml
+---
+name: baton
+description: Your description
+---
+```
+
+To add sections instead of fully replacing, include `<!-- baton:extend -->` in your file — the bundled template body is spliced in at that point.
+
+Re-run `npx ccbaton` to apply changes.
+
 ### Redaction
 
 The PreCompact fallback baton (written when auto-compact was about to fire and no fresh `/baton` existed) is passed through a redaction step before writing to disk. Default patterns cover common API keys, AWS/GitHub tokens, JWTs, and bearer headers.
