@@ -154,3 +154,20 @@ test("install does not prune unrelated user hooks that mention baton", () => {
   const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
   expect(settings.hooks.Stop[0].hooks[0].command).toBe("echo baton statusline");
 });
+
+test("install uses user-level baton-template.md if present and valid", () => {
+  const claudeDir = join(TEST_HOME, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  const overridePath = join(claudeDir, "baton-template.md");
+  const overrideContent = `---\nname: baton\ndescription: Custom baton\n---\n# Override Template`;
+  writeFileSync(overridePath, overrideContent, "utf8");
+
+  const report = install();
+  expect(report.templateSource).toBe("override");
+
+  const commandContent = readFileSync(report.batonCommandPath, "utf8");
+  expect(commandContent).toBe(overrideContent);
+
+  const skillContent = readFileSync(report.batonSkillPath, "utf8");
+  expect(skillContent).toBe(overrideContent);
+});

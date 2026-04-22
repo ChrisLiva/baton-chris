@@ -1,0 +1,24 @@
+<<<<<<< SEARCH
+## Commands
+
+```bash
+=======
+### Custom baton template
+
+Create `~/.claude/baton-template.md` to override the default baton skeleton. The file must start with frontmatter:
+
+```yaml
+---
+name: baton
+description: Your description
+---
+```
+
+To add sections instead of fully replacing, include `<!-- baton:extend -->` in your file — the bundled template body is spliced in at that point.
+
+Re-run `npx ccbaton` to apply changes.
+
+## Commands
+
+```bash
+>>>>>>> REPLACE

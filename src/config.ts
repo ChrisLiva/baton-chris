@@ -71,6 +71,10 @@ export function userBatonSkillPath(): string {
   return join(userBatonSkillDir(), "SKILL.md");
 }
 
+export function userBatonTemplateOverridePath(): string {
+  return join(userClaudeDir(), "baton-template.md");
+}
+
 export function batonStateDir(): string {
   return join(userClaudeDir(), "baton", "state");
 }

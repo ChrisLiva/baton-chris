@@ -73,6 +73,21 @@ BATON_FRESH_MS=1800000 claude
 SESSION_AGE_NUDGE_MS=10800000 claude  # nudge after 3 hours instead
 ```
 
+### Custom baton template
+
+Create `~/.claude/baton-template.md` to override the default baton skeleton. The file must start with frontmatter:
+
+```yaml
+---
+name: baton
+description: Your description
+---
+```
+
+To add sections instead of fully replacing, include `<!-- baton:extend -->` in your file — the bundled template body is spliced in at that point.
+
+Re-run `npx ccbaton` to apply changes.
+
 ## Commands
 
 ```bash

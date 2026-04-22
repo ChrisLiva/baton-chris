@@ -1,0 +1,5 @@
+<<<<<<< SEARCH
+      statusLine: { type: "command", command: 'bun run "/some/ccbaton/src/cli.ts" statusline' },
+=======
+      statusLine: { type: "command", command: 'bun run "/some/baton/src/cli.ts" statusline' },
+>>>>>>> REPLACE
