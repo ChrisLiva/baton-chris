@@ -73,6 +73,21 @@ BATON_FRESH_MS=1800000 claude
 SESSION_AGE_NUDGE_MS=10800000 claude  # nudge after 3 hours instead
 ```
 
+
+### Redaction
+
+The PreCompact fallback baton (written when auto-compact was about to fire and no fresh `/baton` existed) is passed through a redaction step before writing to disk. Default patterns cover common API keys, AWS/GitHub tokens, JWTs, and bearer headers.
+
+Add custom patterns to:
+- `~/.claude/baton-ignore` — user-level, applied to every project
+- `.batonignore` — project-level, applied to the current cwd only
+
+Format: one regex per line, `#` for comments, optional `LABEL|REGEX` to name the pattern. Empty lines ignored.
+
+Redaction only applies to the fallback writer, not to Claude-authored `/baton` output. Don't paste secrets into your own batons.
+
+To disable entirely (not recommended): `BATON_NO_REDACT=1`.
+
 ## Commands
 
 ```bash
