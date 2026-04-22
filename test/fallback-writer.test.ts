@@ -73,4 +73,13 @@ describe("writeFallbackBaton redaction integration", () => {
     expect(content).toContain("- 1x Anthropic API key");
     expect(content).not.toContain("sk-ant-api03");
   });
+
+  test("respects outPathOverride when provided", () => {
+    const customPath = join(tmpDir, "custom", "fallback.md");
+    writeFallbackBaton(tmpDir, transcriptPath, 1000, customPath);
+
+    const content = readFileSync(customPath, "utf8");
+    expect(content).toContain("[redacted Anthropic API key]");
+    expect(content).toContain("## Redactions");
+  });
 });

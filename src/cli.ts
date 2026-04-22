@@ -7,6 +7,7 @@ import { install, printReport, uninstall, printUninstallReport, check, printChec
 import { VERSION } from "./config.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
+import { runReconstruct } from "./baton/reconstruct.ts";
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -31,6 +32,7 @@ function usage(): void {
       "  check                       show current install status (read-only)",
       "  catch [--dry-run]           resume from the nearest BATON.md",
       "  drop                        archive the nearest BATON.md so /clear starts fresh",
+      "  reconstruct <transcript-path> [--out <path>]   rebuild a baton from a transcript JSONL",
       "",
       "Internal (Claude Code pipes data on stdin):",
       "  statusline                  render the statusline",
@@ -104,6 +106,17 @@ async function main(): Promise<number> {
     }
     case "drop": {
       return drop({ cwd: process.cwd() });
+    }
+    case "reconstruct": {
+      const args2 = args.slice(1);
+      const transcriptArg = args2.find(a => !a.startsWith("--"));
+      if (!transcriptArg) {
+        process.stderr.write("baton reconstruct: missing <transcript-path>\n");
+        return 2;
+      }
+      const outFlagIdx = args2.indexOf("--out");
+      const outPath = outFlagIdx >= 0 ? args2[outFlagIdx + 1] : undefined;
+      return await runReconstruct({ transcriptPath: transcriptArg, outPath });
     }
     case undefined: {
       const force = args.includes("--force");
