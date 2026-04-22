@@ -36,21 +36,23 @@ test("listArchives returns sorted entries and handles goal parsing correctly", (
   expect(entries.length).toBe(3);
 
   // Sorting: newest first (f3, f2, f1)
-  expect(entries[0].id).toBe("proj3-2025-01-03T12-00-00-000Z");
-  expect(entries[1].id).toBe("proj2-2025-01-02T12-00-00-000Z-dropped");
-  expect(entries[2].id).toBe("proj1-2025-01-01T12-00-00-000Z");
+  const [e0, e1, e2] = entries;
+  if (!e0 || !e1 || !e2) throw new Error("expected three entries");
+  expect(e0.id).toBe("proj3-2025-01-03T12-00-00-000Z");
+  expect(e1.id).toBe("proj2-2025-01-02T12-00-00-000Z-dropped");
+  expect(e2.id).toBe("proj1-2025-01-01T12-00-00-000Z");
 
-  expect(entries[0].goal).toBe("_(fallback — goal unknown)_");
-  expect(entries[0].fallback).toBe(true);
-  expect(entries[0].dropped).toBe(false);
+  expect(e0.goal).toBe("_(fallback — goal unknown)_");
+  expect(e0.fallback).toBe(true);
+  expect(e0.dropped).toBe(false);
 
-  expect(entries[1].goal).toBe("_(fallback — goal unknown)_");
-  expect(entries[1].fallback).toBe(true);
-  expect(entries[1].dropped).toBe(true);
+  expect(e1.goal).toBe("_(fallback — goal unknown)_");
+  expect(e1.fallback).toBe(true);
+  expect(e1.dropped).toBe(true);
 
-  expect(entries[2].goal).toBe("My cool goal.");
-  expect(entries[2].fallback).toBe(false);
-  expect(entries[2].dropped).toBe(false);
+  expect(e2.goal).toBe("My cool goal.");
+  expect(e2.fallback).toBe(false);
+  expect(e2.dropped).toBe(false);
 });
 
 test("showArchive works, throws on ambiguous prefix, throws on not found", () => {
@@ -101,7 +103,7 @@ test("pruneArchives --keep and --older-than-days and --dry-run", () => {
   // Dry run: Keep 3 (should remove f3), and older than 12 days (should remove f3)
   const res1 = pruneArchives({ keep: 3, dryRun: true });
   expect(res1.deleted.length).toBe(1);
-  expect(res1.deleted[0]).toContain(f3);
+  expect(res1.deleted[0] ?? "").toContain(f3);
   expect(existsSync(join(archiveDir, f3))).toBe(true);
 
   // olderThanDays: 7 -> keeps f0, f1; deletes f2, f3
@@ -136,11 +138,15 @@ test("recallArchives search matches text and returns correct lines", () => {
 
   const res = recallArchives("needle");
   expect(res.length).toBe(1);
-  expect(res[0].matches.length).toBe(2);
-  expect(res[0].matches[0].line).toBe(2);
-  expect(res[0].matches[0].text).toBe("Here is a needle in a haystack");
-  expect(res[0].matches[1].line).toBe(4);
-  expect(res[0].matches[1].text).toBe("Needle in haystack part 2");
+  const r0 = res[0];
+  if (!r0) throw new Error("expected one result");
+  const [m0, m1] = r0.matches;
+  if (!m0 || !m1) throw new Error("expected two matches");
+  expect(r0.matches.length).toBe(2);
+  expect(m0.line).toBe(2);
+  expect(m0.text).toBe("Here is a needle in a haystack");
+  expect(m1.line).toBe(4);
+  expect(m1.text).toBe("Needle in haystack part 2");
 });
 
 test("listArchives returns empty array if archive dir does not exist", () => {
@@ -160,5 +166,5 @@ test("recallArchives ignores files larger than 1MB", () => {
 
   const res = recallArchives("needle");
   expect(res.length).toBe(1);
-  expect(res[0].entry.id).toBe("small-2025-01-01T12-00-00-000Z");
+  expect(res[0]?.entry.id).toBe("small-2025-01-01T12-00-00-000Z");
 });

@@ -2,7 +2,7 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import { renderBatonBadge } from "../src/statusline/widgets.ts";
 import { renderStatusline } from "../src/statusline/render.ts";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { batonStateDir } from "../src/config.ts";
 
@@ -252,5 +252,78 @@ describe("renderStatusline width adaptation", () => {
     const stripped = line.replace(ANSI_RE, "");
 
     expect(stripped.length).toBeLessThanOrEqual(59);
+  });
+});
+
+describe("renderStatusline state persistence", () => {
+  let tmpHome: string;
+  let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
+
+  beforeEach(() => {
+    tmpHome = mkdtempSync(join(tmpdir(), "baton-statusline-state-"));
+    originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
+  });
+
+  afterEach(() => {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
+    rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  test("rateLimit5hPct round-trips through the state file", async () => {
+    const sessionId = `state-rl-roundtrip-${process.pid}-${Date.now()}`;
+    await renderStatusline(JSON.stringify({
+      session_id: sessionId,
+      model: { display_name: "Sonnet 4.5" },
+      context_window: { context_window_size: 200000, used_percentage: 30 },
+      rate_limits: { five_hour: { used_percentage: 87 } },
+    }));
+
+    const statePath = join(batonStateDir(), `${sessionId}.json`);
+    const written = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(written.rateLimit5hPct).toBe(87);
+    expect(written.maxTokens).toBe(200000);
+  });
+
+  test("partial payload (missing five_hour) preserves last-known rateLimit5hPct", async () => {
+    const sessionId = `state-rl-preserve-${process.pid}-${Date.now()}`;
+    await renderStatusline(JSON.stringify({
+      session_id: sessionId,
+      model: { display_name: "Sonnet 4.5" },
+      context_window: { context_window_size: 200000, used_percentage: 30 },
+      rate_limits: { five_hour: { used_percentage: 92 } },
+    }));
+
+    // Second render with no rate_limits at all
+    await renderStatusline(JSON.stringify({
+      session_id: sessionId,
+      model: { display_name: "Sonnet 4.5" },
+      context_window: { context_window_size: 200000, used_percentage: 30 },
+    }));
+
+    const statePath = join(batonStateDir(), `${sessionId}.json`);
+    const written = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(written.rateLimit5hPct).toBe(92);
+  });
+
+  test("invalid rate-limit value (e.g. > 100) is not persisted", async () => {
+    const sessionId = `state-rl-invalid-${process.pid}-${Date.now()}`;
+    await renderStatusline(JSON.stringify({
+      session_id: sessionId,
+      model: { display_name: "Sonnet 4.5" },
+      context_window: { context_window_size: 200000, used_percentage: 30 },
+      rate_limits: { five_hour: { used_percentage: 150 } },
+    }));
+
+    const statePath = join(batonStateDir(), `${sessionId}.json`);
+    const written = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(written.rateLimit5hPct).toBeUndefined();
+    expect(written.maxTokens).toBe(200000);
   });
 });

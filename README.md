@@ -67,6 +67,8 @@ Sonnet 4.5 │ main* │ [======----] 82k/200k │ BATON: Refactor settings-patc
 
 When context gets high, baton nudges Claude to snapshot. At the hard threshold, it injects the baton protocol directly so Claude writes the baton before auto-compaction can discard useful state.
 
+When the 5-hour rate-limit is above 90%, baton escalates the hard nudge earlier (at ~45% of the context window instead of 60%), so you snapshot before one more long turn hits the rate wall and prevents Claude from authoring a baton on demand.
+
 ## Configuration
 
 `BATON_FRESH_MS` controls how long an existing `BATON.md` is considered fresh. The default is ten minutes:
