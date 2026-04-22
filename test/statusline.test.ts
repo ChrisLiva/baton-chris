@@ -212,6 +212,7 @@ describe("renderStatusline width adaptation", () => {
     setColumns(44);
     const noCostPayload = JSON.stringify({
       model: { display_name: "Sonnet 4.5" },
+      worktree: { branch: "feature/long-branch-to-force-drop", is_dirty: false },
       context_window: { context_window_size: 200000, used_percentage: 41 },
     });
     const line = await renderStatusline(noCostPayload);
@@ -219,7 +220,10 @@ describe("renderStatusline width adaptation", () => {
 
     expect(line).toContain("Sonnet 4.5");
     expect(line).not.toContain("$");
-    expect(stripped.length).toBeLessThanOrEqual(44);
+    expect(line).not.toContain("rl·5h");
+    // Overflow forces the bar widget to drop; model, branch, and baton badge remain.
+    expect(stripped).not.toContain("/200k");
+    expect(line).toContain("→");
   });
 
   test("fresh baton goal shrinks to fit narrow widths", async () => {
