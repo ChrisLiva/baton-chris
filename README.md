@@ -122,6 +122,28 @@ By default this writes to `<cwd>/.claude/baton/BATON.md`. Use `--out` for a cust
 
 ## Commands
 
+### Archive
+
+Archived batons are moved to `~/.claude/baton/archive/`. You can view, search, and clean up the archive:
+
+```bash
+baton list                    # list archived batons (newest first)
+baton show <id|prefix>        # read a specific archived baton
+baton recall <query>          # search across your archive
+baton prune --older-than-days 30 --keep 50  # clean up old archives
+```
+
+Example `baton list` output:
+```text
+baton archive (3 entries)
+
+  2026-04-21 19:32   baton           Implement rate-limit nudge
+  2026-04-21 14:05   baton           Refactor settings-patch
+  2026-04-19 08:12   other-proj      _(dropped)_
+```
+
+### General
+
 ```bash
 npx ccbaton@latest          # install or upgrade
 npx ccbaton check           # verify current install state (exits 1 if anything missing)

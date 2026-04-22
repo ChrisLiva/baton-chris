@@ -8,6 +8,15 @@ import { VERSION } from "./config.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 import { runReconstruct } from "./baton/reconstruct.ts";
+import {
+  listArchives,
+  showArchive,
+  pruneArchives,
+  recallArchives,
+  printList,
+  printPrune,
+  printRecall,
+} from "./baton/archive-library.ts";
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -33,6 +42,10 @@ function usage(): void {
       "  catch [--dry-run]           resume from the nearest BATON.md",
       "  drop                        archive the nearest BATON.md so /clear starts fresh",
       "  reconstruct <transcript-path> [--out <path>]   rebuild a baton from a transcript JSONL",
+      "  list [--json]               list archived batons",
+      "  show <id|prefix>            show an archived baton",
+      "  prune [--keep N] [--older-than-days D] [--dry-run]  delete old archived batons",
+      "  recall <query> [--json]     search archived batons",
       "",
       "Internal (Claude Code pipes data on stdin):",
       "  statusline                  render the statusline",
@@ -121,6 +134,59 @@ async function main(): Promise<number> {
       }
       const outPath = outFlagIdx >= 0 ? args2[outFlagIdx + 1] : undefined;
       return runReconstruct({ transcriptPath: transcriptArg, outPath });
+    }
+    case "list": {
+      const json = rest.includes("--json");
+      const entries = listArchives();
+      if (json) {
+        process.stdout.write(JSON.stringify(entries, null, 2) + "\n");
+      } else {
+        printList(entries);
+      }
+      return 0;
+    }
+    case "show": {
+      const idArg = rest.find(a => !a.startsWith("--"));
+      if (!idArg) {
+        process.stderr.write("baton show: missing <id|prefix>\n");
+        return 2;
+      }
+      const content = showArchive(idArg);
+      process.stdout.write(content);
+      return 0;
+    }
+    case "prune": {
+      const keepIdx = rest.indexOf("--keep");
+      const olderIdx = rest.indexOf("--older-than-days");
+      const dryRun = rest.includes("--dry-run");
+      const keep = keepIdx >= 0 ? parseInt(rest[keepIdx + 1] ?? "", 10) : undefined;
+      const olderThanDays = olderIdx >= 0 ? parseInt(rest[olderIdx + 1] ?? "", 10) : undefined;
+      if (keep !== undefined && isNaN(keep)) {
+        process.stderr.write("baton prune: --keep requires a number\n");
+        return 2;
+      }
+      if (olderThanDays !== undefined && isNaN(olderThanDays)) {
+        process.stderr.write("baton prune: --older-than-days requires a number\n");
+        return 2;
+      }
+      const result = pruneArchives({ keep, olderThanDays, dryRun });
+      printPrune(result, dryRun);
+      return 0;
+    }
+    case "recall": {
+      const json = rest.includes("--json");
+      const query = rest.find(a => !a.startsWith("--"));
+      if (!query) {
+        process.stderr.write("baton recall: missing <query>\n");
+        return 2;
+      }
+      const results = recallArchives(query);
+      if (json) {
+        process.stdout.write(JSON.stringify(results, null, 2) + "\n");
+      } else {
+        printRecall(results);
+      }
+      return 0;
     }
     case undefined: {
       const force = args.includes("--force");
