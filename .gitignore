@@ -38,3 +38,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Temp working files
 .tmp/
+
+# Out-of-band working notes / task briefs (not shipped)
+.dev/
