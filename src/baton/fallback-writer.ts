@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readTranscript, isMainChain, type TranscriptEntry } from "../transcript/read.ts";
-import { BATON_REL_PATH } from "../config.ts";
+import { BATON_REL_PATH, userHomeDir } from "../config.ts";
+import { redact, loadUserPatterns, loadProjectPatterns, DEFAULT_PATTERNS } from "./redact.ts";
 
 const RECENT_TURN_COUNT = 8;
 
@@ -109,8 +110,21 @@ ${fileList}
 ${recentBlocks || "_(no recent turns)_"}
 `;
 
+
+  const userPatterns = loadUserPatterns(userHomeDir());
+  const projectPatterns = loadProjectPatterns(cwd);
+  const patterns = [...DEFAULT_PATTERNS, ...userPatterns, ...projectPatterns];
+
+  const { body: redactedBody, hits } = redact(body, patterns);
+
+  const redactionsSection = hits.length > 0
+    ? hits.map(h => `- ${h.count}x ${h.label}`).join("\n")
+    : "_none_";
+
+  const finalBody = redactedBody + `\n## Redactions\n${redactionsSection}\n`;
+
   const outPath = join(cwd, BATON_REL_PATH);
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, body, "utf8");
+  writeFileSync(outPath, finalBody, "utf8");
   return outPath;
 }

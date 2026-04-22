@@ -51,6 +51,10 @@ export function userCommandsDir(): string {
   return join(userClaudeDir(), "commands");
 }
 
+export function userBatonIgnorePath(): string {
+  return join(userClaudeDir(), "baton-ignore");
+}
+
 export function userBatonCommandPath(): string {
   return join(userCommandsDir(), "baton.md");
 }

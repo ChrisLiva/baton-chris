@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { extractFilePaths } from "../src/baton/fallback-writer.ts";
 import type { TranscriptEntry } from "../src/transcript/read.ts";
 
@@ -30,5 +30,47 @@ describe("extractFilePaths", () => {
 
   test("deduplicates case-insensitively", () => {
     expect(extractFilePaths([entry("See src/App.ts and src/app.ts")])).toEqual(["src/app.ts"]);
+  });
+});
+
+import { writeFallbackBaton } from "../src/baton/fallback-writer.ts";
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { BATON_REL_PATH } from "../src/config.ts";
+
+describe("writeFallbackBaton redaction integration", () => {
+  const tmpDir = join(import.meta.dir, ".tmp-fallback");
+  const transcriptPath = join(tmpDir, "transcript.json");
+
+  beforeEach(() => {
+    mkdirSync(tmpDir, { recursive: true });
+
+    // Create a mock transcript
+    const transcript = [
+      {
+        type: "assistant",
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: "Here is a token: sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890-abcdefg"
+        }
+      }
+    ];
+    writeFileSync(transcriptPath, transcript.map(t => JSON.stringify(t)).join("\n") + "\n");
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("runs redaction and appends ## Redactions section", () => {
+    writeFallbackBaton(tmpDir, transcriptPath, 1000);
+    const batonPath = join(tmpDir, BATON_REL_PATH);
+    const content = readFileSync(batonPath, "utf8");
+
+    expect(content).toContain("[redacted Anthropic API key]");
+    expect(content).toContain("## Redactions");
+    expect(content).toContain("- 1x Anthropic API key");
+    expect(content).not.toContain("sk-ant-api03");
   });
 });
