@@ -4,6 +4,8 @@ import { snapshotFromTranscript } from "../transcript/tokens.ts";
 import { readFirstTimestamp } from "../transcript/read.ts";
 import { readTemplateBody } from "../baton/template-loader.ts";
 import { batonStateDir, SESSION_AGE_NUDGE_MIN_TOKENS, SESSION_AGE_NUDGE_MS, THRESHOLDS } from "../config.ts";
+import { normalizeLevel, normalizeMaxTokens } from "../baton/state.ts";
+import type { BatonState, NudgeLevel } from "../baton/state.ts";
 
 interface HookPayload {
   session_id?: string;
@@ -12,17 +14,8 @@ interface HookPayload {
   hook_event_name?: string;
 }
 
-type NudgeLevel = "none" | "soft" | "hard";
 const MAX_STATE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_TOKENS = 200_000;
-
-interface StateFile {
-  level: NudgeLevel;
-  /** Written by the statusline, which receives the real context window from Claude Code. */
-  maxTokens?: number;
-  /** True once the session-age nudge has been sent. Prevents repeated firing. */
-  timeNudgeSent?: boolean;
-}
 
 function levelFor(tokens: number, maxTokens: number): NudgeLevel {
   if (tokens >= Math.floor(THRESHOLDS.NUDGE_HARD * maxTokens)) return "hard";
@@ -30,26 +23,23 @@ function levelFor(tokens: number, maxTokens: number): NudgeLevel {
   return "none";
 }
 
-function readState(path: string): StateFile {
+function readState(path: string): BatonState {
   if (!existsSync(path)) return { level: "none" };
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<StateFile>;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<BatonState>;
     // Normalize level: other writers (e.g. statusline) may write { maxTokens }
     // without a level field. Treat missing/invalid level as "none".
-    const level: NudgeLevel =
-      parsed.level === "soft" || parsed.level === "hard" ? parsed.level : "none";
+    const level = normalizeLevel(parsed.level);
     // Normalize maxTokens: guard against 0, NaN, negative, or non-number values
     // that would cause levelFor to over-fire (0 → always hard) or never fire (NaN).
-    const raw = parsed.maxTokens;
-    const maxTokens =
-      typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined;
+    const maxTokens = normalizeMaxTokens(parsed.maxTokens);
     return { ...parsed, level, maxTokens };
   } catch {
     return { level: "none" };
   }
 }
 
-function writeState(path: string, prior: StateFile, updates: Partial<StateFile>): void {
+function writeState(path: string, prior: BatonState, updates: Partial<BatonState>): void {
   mkdirSync(batonStateDir(), { recursive: true });
   // Spread prior to preserve fields written by other writers (e.g. maxTokens from statusline).
   writeFileSync(path, JSON.stringify({ ...prior, ...updates }));
