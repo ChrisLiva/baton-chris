@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { color } from "./color.ts";
+import { color, visibleLength } from "./color.ts";
 import {
   BATON_FRESH_MS,
   BATON_REL_PATH,
@@ -34,6 +34,32 @@ export function renderBranch(branch: string | undefined, dirty: boolean | undefi
  *  4. Idle → →125k (shows where the hard limit sits)
  */
 const DEFAULT_MAX_TOKENS = 200_000;
+const DEFAULT_BATON_GOAL_MAX = 40;
+const BATON_GOAL_PREFIX = "BATON: ";
+const BATON_FRESH_FALLBACK = "BATON ✓";
+export const MIN_BATON_GOAL_BADGE_WIDTH = BATON_GOAL_PREFIX.length + 1;
+
+function truncateWithEllipsis(text: string, maxLength: number): string {
+  if (maxLength <= 0) return "";
+  if (text.length <= maxLength) return text;
+  if (maxLength === 1) return "…";
+  return text.slice(0, maxLength - 1).trimEnd() + "…";
+}
+
+function renderFreshBatonBadge(goal: string | null, maxWidth?: number): string {
+  if (!goal) {
+    return color.bold.greenBright(BATON_FRESH_FALLBACK);
+  }
+
+  const visibleBudget = maxWidth ?? BATON_GOAL_PREFIX.length + DEFAULT_BATON_GOAL_MAX;
+  if (visibleBudget <= visibleLength(BATON_FRESH_FALLBACK)) {
+    return color.bold.greenBright(BATON_FRESH_FALLBACK);
+  }
+
+  const goalBudget = Math.max(1, visibleBudget - BATON_GOAL_PREFIX.length);
+  const formattedGoal = truncateWithEllipsis(goal.trim().replace(/\s+/g, " "), goalBudget);
+  return `${color.bold.greenBright("BATON:")} ${formattedGoal}`;
+}
 
 let cachedBatonGoal: { path: string; mtimeMs: number; goal: string | null } | null = null;
 
@@ -57,7 +83,12 @@ function readBatonGoal(path: string, mtimeMs: number): string | null {
   return goal;
 }
 
-export function renderBatonBadge(cwd: string | undefined, sessionId: string | undefined, max: number = DEFAULT_MAX_TOKENS): string {
+export function renderBatonBadge(
+  cwd: string | undefined,
+  sessionId: string | undefined,
+  max: number = DEFAULT_MAX_TOKENS,
+  maxWidth?: number,
+): string {
   if (cwd) {
     const batonPath = join(cwd, BATON_REL_PATH);
     if (existsSync(batonPath)) {
@@ -65,14 +96,7 @@ export function renderBatonBadge(cwd: string | undefined, sessionId: string | un
         const stat = statSync(batonPath);
         if (Date.now() - stat.mtimeMs < BATON_FRESH_MS) {
           const goal = readBatonGoal(batonPath, stat.mtimeMs);
-          if (goal) {
-            let formattedGoal = goal.trim().replace(/\s+/g, " ");
-            if (formattedGoal.length > 40) {
-              formattedGoal = formattedGoal.slice(0, 39).trimEnd() + "…";
-            }
-            return `${color.bold.greenBright("BATON:")} ${formattedGoal}`;
-          }
-          return color.bold.greenBright("BATON ✓");
+          return renderFreshBatonBadge(goal, maxWidth);
         }
       } catch {
         // ignore

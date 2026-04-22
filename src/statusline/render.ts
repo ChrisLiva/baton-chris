@@ -10,6 +10,7 @@ import {
   renderRateLimit5h,
   renderDuration,
   renderCost,
+  MIN_BATON_GOAL_BADGE_WIDTH,
   type RateLimit,
 } from "./widgets.ts";
 import { snapshotFromTranscript } from "../transcript/tokens.ts";
@@ -188,13 +189,50 @@ export async function renderStatusline(raw: string): Promise<string> {
 
   const columns = process.stdout.columns;
   if (columns && columns >= 40) {
+    const visibleTotal = (items: { text: string }[]) =>
+      items.reduce((sum, p) => sum + visibleLength(p.text), 0) + Math.max(0, items.length - 1) * visibleLength(SEP_TEXT);
+
     const DROP_PRIORITY = ["cost", "duration", "rateLimit"];
     for (const dropKey of DROP_PRIORITY) {
-      const totalLen = parts.reduce((sum, p) => sum + visibleLength(p.text), 0) + Math.max(0, parts.length - 1) * 3;
+      const totalLen = visibleTotal(parts);
       if (totalLen <= columns - 1) {
         break;
       }
       parts = parts.filter((p) => p.key !== dropKey);
+    }
+
+    const batonIndex = parts.findIndex((p) => p.key === "batonBadge");
+    if (batonIndex !== -1) {
+      let totalLen = visibleTotal(parts);
+      let overflow = totalLen - (columns - 1);
+      let currentBatonIndex = batonIndex;
+      let batonPart = parts[currentBatonIndex];
+      if (batonPart && overflow > 0) {
+        let currentWidth = visibleLength(batonPart.text);
+        let targetWidth = currentWidth - overflow;
+
+        if (targetWidth < MIN_BATON_GOAL_BADGE_WIDTH) {
+          const barIndex = parts.findIndex((p) => p.key === "bar");
+          if (barIndex !== -1) {
+            parts = parts.filter((_, index) => index !== barIndex);
+            currentBatonIndex = parts.findIndex((p) => p.key === "batonBadge");
+            batonPart = currentBatonIndex === -1 ? undefined : parts[currentBatonIndex];
+            totalLen = visibleTotal(parts);
+            overflow = totalLen - (columns - 1);
+            if (batonPart) {
+              currentWidth = visibleLength(batonPart.text);
+              targetWidth = currentWidth - Math.max(0, overflow);
+            }
+          }
+        }
+
+        if (batonPart && currentBatonIndex !== -1) {
+          parts[currentBatonIndex] = {
+            key: batonPart.key,
+            text: renderBatonBadge(data.cwd, data.session_id, max, targetWidth),
+          };
+        }
+      }
     }
   } else if (columns !== undefined && columns > 0 && columns < 40) {
     if (parts.length > 0) {

@@ -222,6 +222,30 @@ describe("renderStatusline width adaptation", () => {
     expect(stripped.length).toBeLessThanOrEqual(44);
   });
 
+  test("fresh baton goal shrinks to fit narrow widths", async () => {
+    setColumns(44);
+    const tmpCwd = mkdtempSync(join(tmpdir(), "baton-statusline-width-"));
+    try {
+      mkdirSync(join(tmpCwd, ".claude/baton"), { recursive: true });
+      writeFileSync(
+        join(tmpCwd, ".claude/baton/BATON.md"),
+        "# Title\n\n## Current Goal\nShip a very small but still meaningful baton goal in the statusline\n",
+      );
+
+      const line = await renderStatusline(JSON.stringify({
+        cwd: tmpCwd,
+        model: { display_name: "Sonnet 4.5" },
+        context_window: { context_window_size: 200000, used_percentage: 41 },
+      }));
+      const stripped = line.replace(ANSI_RE, "");
+
+      expect(stripped).toContain("BATON:");
+      expect(stripped.length).toBeLessThanOrEqual(44);
+    } finally {
+      rmSync(tmpCwd, { recursive: true, force: true });
+    }
+  });
+
   test("ANSI codes are not counted in visible length", async () => {
     setColumns(60);
     const line = await renderStatusline(dummyPayload);
