@@ -115,8 +115,12 @@ async function main(): Promise<number> {
         return 2;
       }
       const outFlagIdx = args2.indexOf("--out");
+      if (outFlagIdx >= 0 && (args2[outFlagIdx + 1] === undefined || args2[outFlagIdx + 1]?.startsWith("--"))) {
+        process.stderr.write("baton reconstruct: --out requires a path argument\n");
+        return 2;
+      }
       const outPath = outFlagIdx >= 0 ? args2[outFlagIdx + 1] : undefined;
-      return await runReconstruct({ transcriptPath: transcriptArg, outPath });
+      return runReconstruct({ transcriptPath: transcriptArg, outPath });
     }
     case undefined: {
       const force = args.includes("--force");
