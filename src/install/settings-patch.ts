@@ -45,7 +45,6 @@ function isBatonCommand(cmd: string | undefined): boolean {
   }
   // Self-locating source or published package style.
   if (/[\\/](?:cc)?baton[\\/].*(?:src[\\/]cli\.ts|dist[\\/]cli\.js)(?:["'\s]|$)/.test(cmd)) return true;
-  if (/src[\\/]cli\.ts(?:["'\s]|$)/.test(cmd)) return true; // For testing in /app/src/cli.ts
   return false;
 }
 

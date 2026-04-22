@@ -1,7 +1,16 @@
-import { expect, test, beforeEach, afterEach } from "bun:test";
+import { expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_HOME } from "./helpers/test-home.ts";
+
+const actualConfig = await import("../src/config.ts");
+const TEST_CLI_PATH = "/some/baton/src/cli.ts";
+
+mock.module("../src/config.ts", () => ({
+  ...actualConfig,
+  cliPath: () => TEST_CLI_PATH,
+  buildCommand: (sub: string) => `bun run "${TEST_CLI_PATH}" ${sub}`,
+}));
 
 const { install } = await import("../src/install/settings-patch.ts");
 
