@@ -46,8 +46,8 @@ function readBatonGoal(path: string, mtimeMs: number): string | null {
     const body = readFileSync(path, "utf8");
     const m = body.match(/^## Current Goal\s*\n([^\n]+)/m);
     const raw = m?.[1]?.trim();
-    // Reject fallback/placeholder goals — they're noise in the statusline.
-    if (raw && !/^_.*_$/.test(raw) && raw !== "_unknown") {
+    // Reject fallback placeholder goals like _none_ or _unknown_ — they're noise in the statusline.
+    if (raw && !/^_.*_$/.test(raw)) {
       goal = raw;
     }
   } catch {
@@ -68,7 +68,7 @@ export function renderBatonBadge(cwd: string | undefined, sessionId: string | un
           if (goal) {
             let formattedGoal = goal.trim().replace(/\s+/g, " ");
             if (formattedGoal.length > 40) {
-              formattedGoal = formattedGoal.slice(0, 39) + "…";
+              formattedGoal = formattedGoal.slice(0, 39).trimEnd() + "…";
             }
             return `${color.bold.greenBright("BATON:")} ${formattedGoal}`;
           }
