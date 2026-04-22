@@ -9,6 +9,7 @@ describe("renderBatonBadge", () => {
   let tmpHome: string;
   let originalHome: string | undefined;
   let originalUserProfile: string | undefined;
+  let stateFilePath: string | null;
 
   beforeEach(() => {
     tmpHome = mkdtempSync(join(tmpdir(), "baton-statusline-"));
@@ -16,9 +17,13 @@ describe("renderBatonBadge", () => {
     originalUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpHome;
     process.env.USERPROFILE = tmpHome;
+    stateFilePath = null;
   });
 
   afterEach(() => {
+    if (stateFilePath) {
+      rmSync(stateFilePath, { force: true });
+    }
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
     if (originalUserProfile === undefined) delete process.env.USERPROFILE;
@@ -30,7 +35,8 @@ describe("renderBatonBadge", () => {
     const sessionId = `test-invalid-level-${process.pid}-${Date.now()}`;
     const dir = batonStateDir();
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${sessionId}.json`), JSON.stringify({ level: "invalid", maxTokens: 200_000 }));
+    stateFilePath = join(dir, `${sessionId}.json`);
+    writeFileSync(stateFilePath, JSON.stringify({ level: "invalid", maxTokens: 200_000 }));
 
     const badge = renderBatonBadge(undefined, sessionId, 200_000);
 
@@ -53,15 +59,13 @@ describe("renderBatonBadge", () => {
       rmSync(tmpCwd, { recursive: true, force: true });
     });
 
-    // Helper to simulate time passing for mtime changes
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     test("shows extracted goal from fresh baton", () => {
       writeFileSync(batonPath, "# Title\n\n## Current Goal\nRefactor settings-patch for idempotent install\n");
       const badge = renderBatonBadge(tmpCwd, undefined);
-      // Remove ansi colors for easy assertion
       const cleanBadge = badge.replace(/\x1b\[[0-9;]*m/g, "");
-      expect(cleanBadge).toContain("BATON: Refactor settings-patch for idempotent …");
+      expect(cleanBadge).toContain("BATON: Refactor settings-patch for idempotent…");
     });
 
     test("truncates long goals with ellipsis", () => {
@@ -101,23 +105,21 @@ describe("renderBatonBadge", () => {
       let badge = renderBatonBadge(tmpCwd, undefined);
       expect(badge.replace(/\x1b\[[0-9;]*m/g, "")).toContain("BATON: First Goal");
 
-      await delay(10); // Ensure mtime is different
+      await delay(10);
       writeFileSync(batonPath, "## Current Goal\nSecond Goal\n");
       badge = renderBatonBadge(tmpCwd, undefined);
       expect(badge.replace(/\x1b\[[0-9;]*m/g, "")).toContain("BATON: Second Goal");
     });
 
     test("prioritizes fresh baton over hard nudge level", () => {
-      // Create fresh baton
       writeFileSync(batonPath, "## Current Goal\nFresh Goal\n");
 
-      // Create hard nudge state
       const sessionId = `test-hard-nudge-${process.pid}-${Date.now()}`;
       const dir = batonStateDir();
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, `${sessionId}.json`), JSON.stringify({ level: "hard", maxTokens: 200_000 }));
+      stateFilePath = join(dir, `${sessionId}.json`);
+      writeFileSync(stateFilePath, JSON.stringify({ level: "hard", maxTokens: 200_000 }));
 
-      // Badge should show baton
       const badge = renderBatonBadge(tmpCwd, sessionId);
       expect(badge.replace(/\x1b\[[0-9;]*m/g, "")).toContain("BATON: Fresh Goal");
     });
