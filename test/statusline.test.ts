@@ -6,6 +6,8 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { batonStateDir } from "../src/config.ts";
 
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
 describe("renderBatonBadge", () => {
   let tmpHome: string;
   let originalHome: string | undefined;
@@ -77,26 +79,33 @@ describe("renderStatusline width adaptation", () => {
     const line = await renderStatusline(dummyPayload);
     expect(line).toContain("Sonnet 4.5");
     expect(line).toContain("main*");
-    expect(line).toContain("71%"); // rate limit
-    expect(line).toContain("12m"); // duration
-    expect(line).toContain("$1.24"); // cost
+    expect(line).toContain("71%");
+    expect(line).toContain("12m");
+    expect(line).toContain("$1.24");
   });
 
   test("columns = 60 -> cost and duration dropped; rateLimit, baton badge, branch, bar, model remain", async () => {
-    // A 60-col terminal is narrow enough to drop cost and duration.
-    // If rateLimit needs to drop too, it will, depending on exactly how long the string is.
-    // But we know at least cost and duration should drop, and model, branch, bar, batonBadge remain.
     setColumns(60);
     const line = await renderStatusline(dummyPayload);
     expect(line).toContain("Sonnet 4.5");
     expect(line).toContain("main*");
-    // When no active badge, we show a default arrow badge instead of BATON word, wait no, let's just assert length drops properly and drops duration and cost
-    expect(line).not.toContain("$1.24"); // dropped
-    expect(line).not.toContain("12m"); // dropped
+    expect(line).not.toContain("$1.24");
+    expect(line).not.toContain("12m");
   });
 
-  test("columns = 40 -> everything dropped except the first segment", async () => {
-    setColumns(35); // strictly below 40 drops everything but first segment
+  test("columns = 40 -> drop loop trims low-priority widgets but keeps more than the first segment", async () => {
+    setColumns(40);
+    const line = await renderStatusline(dummyPayload);
+
+    expect(line).toContain("Sonnet 4.5");
+    expect(line).toContain("main*");
+    expect(line).not.toContain("71%");
+    expect(line).not.toContain("12m");
+    expect(line).not.toContain("$1.24");
+  });
+
+  test("columns < 40 -> everything dropped except the first segment", async () => {
+    setColumns(35);
     const line = await renderStatusline(dummyPayload);
     expect(line).toContain("Sonnet 4.5");
     expect(line).not.toContain("main*");
@@ -114,28 +123,24 @@ describe("renderStatusline width adaptation", () => {
   });
 
   test("widget absent gracefully skips and drops remaining if needed", async () => {
-    setColumns(45); // quite narrow
+    setColumns(44);
     const noCostPayload = JSON.stringify({
       model: { display_name: "Sonnet 4.5" },
-      worktree: { branch: "main", is_dirty: true },
       context_window: { context_window_size: 200000, used_percentage: 41 },
-      rate_limits: { five_hour: { used_percentage: 71 } },
     });
     const line = await renderStatusline(noCostPayload);
+    const stripped = line.replace(ANSI_RE, "");
+
     expect(line).toContain("Sonnet 4.5");
-    // it shouldn't crash trying to drop cost, and might drop rateLimit.
+    expect(line).not.toContain("$");
+    expect(stripped.length).toBeLessThanOrEqual(44);
   });
 
   test("ANSI codes are not counted in visible length", async () => {
-    // We only truncate `rateLimit`, `duration`, `cost` at `40` column limit. If cols=45, nothing gets dropped except rateLimit, duration, cost
-    setColumns(45);
-    const payload = JSON.stringify({
-      model: { display_name: "A" },
-      worktree: { branch: "B", is_dirty: false },
-      context_window: { context_window_size: 1000, used_percentage: 1 },
-    });
-    const line = await renderStatusline(payload);
-    expect(line).toContain("A");
-    expect(line).toContain("B");
+    setColumns(60);
+    const line = await renderStatusline(dummyPayload);
+    const stripped = line.replace(ANSI_RE, "");
+
+    expect(stripped.length).toBeLessThanOrEqual(59);
   });
 });

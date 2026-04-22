@@ -196,9 +196,9 @@ export async function renderStatusline(raw: string): Promise<string> {
       }
       parts = parts.filter((p) => p.key !== dropKey);
     }
-  } else if (columns !== undefined && columns !== null && columns > 0 && columns < 40) {
-    if (parts.length > 0 && parts[0] !== undefined) {
-      parts = [parts[0]];
+  } else if (columns !== undefined && columns > 0 && columns < 40) {
+    if (parts.length > 0) {
+      parts = parts.slice(0, 1);
     }
   }
 
