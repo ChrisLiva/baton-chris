@@ -1,5 +1,10 @@
 type Painter = (text: string) => string;
 
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+export function visibleLength(s: string): number {
+  return s.replace(ANSI_RE, "").length;
+}
+
 function ansi(open: string, close: string, text: string): string {
   return `\x1b[${open}m${text}\x1b[${close}m`;
 }
