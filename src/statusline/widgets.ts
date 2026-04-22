@@ -35,6 +35,28 @@ export function renderBranch(branch: string | undefined, dirty: boolean | undefi
  */
 const DEFAULT_MAX_TOKENS = 200_000;
 
+let cachedBatonGoal: { path: string; mtimeMs: number; goal: string | null } | null = null;
+
+function readBatonGoal(path: string, mtimeMs: number): string | null {
+  if (cachedBatonGoal?.path === path && cachedBatonGoal.mtimeMs === mtimeMs) {
+    return cachedBatonGoal.goal;
+  }
+  let goal: string | null = null;
+  try {
+    const body = readFileSync(path, "utf8");
+    const m = body.match(/^## Current Goal\s*\n([^\n]+)/m);
+    const raw = m?.[1]?.trim();
+    // Reject fallback/placeholder goals — they're noise in the statusline.
+    if (raw && !/^_.*_$/.test(raw) && raw !== "_unknown") {
+      goal = raw;
+    }
+  } catch {
+    // ignore — missing file, permission error
+  }
+  cachedBatonGoal = { path, mtimeMs, goal };
+  return goal;
+}
+
 export function renderBatonBadge(cwd: string | undefined, sessionId: string | undefined, max: number = DEFAULT_MAX_TOKENS): string {
   if (cwd) {
     const batonPath = join(cwd, BATON_REL_PATH);
@@ -42,6 +64,14 @@ export function renderBatonBadge(cwd: string | undefined, sessionId: string | un
       try {
         const stat = statSync(batonPath);
         if (Date.now() - stat.mtimeMs < BATON_FRESH_MS) {
+          const goal = readBatonGoal(batonPath, stat.mtimeMs);
+          if (goal) {
+            let formattedGoal = goal.trim().replace(/\s+/g, " ");
+            if (formattedGoal.length > 40) {
+              formattedGoal = formattedGoal.slice(0, 39) + "…";
+            }
+            return `${color.bold.greenBright("BATON:")} ${formattedGoal}`;
+          }
           return color.bold.greenBright("BATON ✓");
         }
       } catch {

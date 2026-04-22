@@ -38,4 +38,88 @@ describe("renderBatonBadge", () => {
     expect(badge).not.toContain("⚠ soft");
     expect(badge).not.toContain("⚠ HARD");
   });
+
+  describe("baton goal", () => {
+    let tmpCwd: string;
+    let batonPath: string;
+
+    beforeEach(() => {
+      tmpCwd = mkdtempSync(join(tmpdir(), "baton-cwd-"));
+      batonPath = join(tmpCwd, ".claude/baton/BATON.md");
+      mkdirSync(join(tmpCwd, ".claude/baton"), { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(tmpCwd, { recursive: true, force: true });
+    });
+
+    // Helper to simulate time passing for mtime changes
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    test("shows extracted goal from fresh baton", () => {
+      writeFileSync(batonPath, "# Title\n\n## Current Goal\nRefactor settings-patch for idempotent install\n");
+      const badge = renderBatonBadge(tmpCwd, undefined);
+      // Remove ansi colors for easy assertion
+      const cleanBadge = badge.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(cleanBadge).toContain("BATON: Refactor settings-patch for idempotent …");
+    });
+
+    test("truncates long goals with ellipsis", () => {
+      writeFileSync(batonPath, "# Title\n\n## Current Goal\nThis is a very long goal that will exceed forty characters easily and definitely needs to be truncated\n");
+      const badge = renderBatonBadge(tmpCwd, undefined);
+      const cleanBadge = badge.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(cleanBadge).toContain("BATON: This is a very long goal that will exce…");
+    });
+
+    test("collapses whitespace in goal", () => {
+      writeFileSync(batonPath, "# Title\n\n## Current Goal\n   Goal  with\t   extra whitespace   \n");
+      const badge = renderBatonBadge(tmpCwd, undefined);
+      const cleanBadge = badge.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(cleanBadge).toContain("BATON: Goal with extra whitespace");
+    });
+
+    test("falls back to default badge for missing goal section", () => {
+      writeFileSync(batonPath, "# Title\n\n## Other Section\nNo goal here\n");
+      const badge = renderBatonBadge(tmpCwd, undefined);
+      expect(badge).toContain("BATON ✓");
+    });
+
+    test("falls back to default badge for _none_ goal", () => {
+      writeFileSync(batonPath, "# Title\n\n## Current Goal\n_none_\n");
+      const badge = renderBatonBadge(tmpCwd, undefined);
+      expect(badge).toContain("BATON ✓");
+    });
+
+    test("falls back to default badge for _unknown_ goal", () => {
+      writeFileSync(batonPath, "# Title\n\n## Current Goal\n_unknown_\n");
+      const badge = renderBatonBadge(tmpCwd, undefined);
+      expect(badge).toContain("BATON ✓");
+    });
+
+    test("invalidates cache when mtime changes", async () => {
+      writeFileSync(batonPath, "## Current Goal\nFirst Goal\n");
+      let badge = renderBatonBadge(tmpCwd, undefined);
+      expect(badge.replace(/\x1b\[[0-9;]*m/g, "")).toContain("BATON: First Goal");
+
+      await delay(10); // Ensure mtime is different
+      writeFileSync(batonPath, "## Current Goal\nSecond Goal\n");
+      badge = renderBatonBadge(tmpCwd, undefined);
+      expect(badge.replace(/\x1b\[[0-9;]*m/g, "")).toContain("BATON: Second Goal");
+    });
+
+    test("prioritizes fresh baton over hard nudge level", () => {
+      // Create fresh baton
+      writeFileSync(batonPath, "## Current Goal\nFresh Goal\n");
+
+      // Create hard nudge state
+      const sessionId = `test-hard-nudge-${process.pid}-${Date.now()}`;
+      const dir = batonStateDir();
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${sessionId}.json`), JSON.stringify({ level: "hard", maxTokens: 200_000 }));
+
+      // Badge should show baton
+      const badge = renderBatonBadge(tmpCwd, sessionId);
+      expect(badge.replace(/\x1b\[[0-9;]*m/g, "")).toContain("BATON: Fresh Goal");
+    });
+  });
 });

@@ -62,7 +62,7 @@ baton catch --dry-run
 The statusline shows model, branch, context usage, baton state, rate limit, duration, and cost in one compact row:
 
 ```text
-Sonnet 4.5 | main* | [======----] 82k/200k | baton:fresh | 5h 71% | 12m | $1.24
+Sonnet 4.5 │ main* │ [======----] 82k/200k │ BATON: Refactor settings-patch │ 5h 71% │ 12m │ $1.24
 ```
 
 When context gets high, baton nudges Claude to snapshot. At the hard threshold, it injects the baton protocol directly so Claude writes the baton before auto-compaction can discard useful state.
