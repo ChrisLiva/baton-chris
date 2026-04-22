@@ -144,10 +144,13 @@ function persistStateSnapshot(
     if (maxTokens !== undefined) merged.maxTokens = maxTokens;
     if (rateLimit5hPct !== undefined) merged.rateLimit5hPct = rateLimit5hPct;
     writeFileSync(statePath, JSON.stringify(merged));
+    // Only carry forward prior-cache values within the same session; a different
+    // sessionId's values are unrelated and would poison later dedup comparisons.
+    const carry = lastPersistedSnapshot?.sessionId === sessionId ? lastPersistedSnapshot : null;
     lastPersistedSnapshot = {
       sessionId,
-      maxTokens: maxTokens ?? lastPersistedSnapshot?.maxTokens,
-      rateLimit5hPct: rateLimit5hPct ?? lastPersistedSnapshot?.rateLimit5hPct,
+      maxTokens: maxTokens ?? carry?.maxTokens,
+      rateLimit5hPct: rateLimit5hPct ?? carry?.rateLimit5hPct,
     };
   } catch { /* never crash the statusline */ }
 }
