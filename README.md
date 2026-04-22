@@ -1,4 +1,12 @@
-# baton
+<p align="center">
+  <img src="assets/mascot.png" alt="baton mascot — a small pixel-art runner with a green headband carrying a baton" width="128">
+</p>
+
+<h1 align="center">baton</h1>
+
+<p align="center">
+  <em>Snapshot-and-resume for Claude Code sessions. Never lose context to auto-compaction again.</em>
+</p>
 
 baton is a Claude Code session snapshot and handoff tool. It writes the current working state into a structured `BATON.md` so a fresh Claude Code session can resume with the goal, recent decisions, active files, gotchas, and next concrete action intact instead of relying on degraded compacted context.
 
