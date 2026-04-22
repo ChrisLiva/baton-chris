@@ -8,6 +8,7 @@ import {
   THRESHOLDS,
 } from "../config.ts";
 import { formatK } from "./bar.ts";
+import { normalizeLevel } from "../baton/state.ts";
 
 export interface RateLimit {
   used_percentage?: number | null;
@@ -53,9 +54,10 @@ export function renderBatonBadge(cwd: string | undefined, sessionId: string | un
     const statePath = join(batonStateDir(), `${sessionId}.json`);
     if (existsSync(statePath)) {
       try {
-        const state = JSON.parse(readFileSync(statePath, "utf8")) as { level?: string };
-        if (state.level === "hard") return color.bold.red("⚠ HARD");
-        if (state.level === "soft") return color.hex("#ff8800")("⚠ soft");
+        const state = JSON.parse(readFileSync(statePath, "utf8")) as { level?: unknown };
+        const level = normalizeLevel(state.level);
+        if (level === "hard") return color.bold.red("⚠ HARD");
+        if (level === "soft") return color.hex("#ff8800")("⚠ soft");
       } catch {
         // ignore
       }
