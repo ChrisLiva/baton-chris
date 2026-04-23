@@ -67,6 +67,8 @@ Sonnet 4.5 │ main* │ [======----] 82k/200k │ BATON: Refactor settings-patc
 
 When context gets high, baton nudges Claude to snapshot. At the hard threshold, it injects the baton protocol directly so Claude writes the baton before auto-compaction can discard useful state.
 
+When the 5-hour rate-limit is above 90%, baton escalates the hard nudge earlier (at ~45% of the context window instead of 60%), so you snapshot before one more long turn hits the rate wall and prevents Claude from authoring a baton on demand.
+
 ## Configuration
 
 `BATON_FRESH_MS` controls how long an existing `BATON.md` is considered fresh. The default is ten minutes:
@@ -121,6 +123,28 @@ baton reconstruct ~/.claude/projects/my-project/abc123.jsonl
 By default this writes to `<cwd>/.claude/baton/BATON.md`. Use `--out` for a custom location. The rebuilt baton uses the same fallback format as the PreCompact auto-write — deterministic, less structured than a Claude-authored baton, but enough to resume.
 
 ## Commands
+
+### Archive
+
+Archived batons are moved to `~/.claude/baton/archive/`. You can view, search, and clean up the archive:
+
+```bash
+baton list                    # list archived batons (newest first)
+baton show <id|prefix>        # read a specific archived baton
+baton recall <query>          # search across your archive
+baton prune --older-than-days 30 --keep 50  # clean up old archives
+```
+
+Example `baton list` output:
+```text
+baton archive (3 entries)
+
+  2026-04-21 19:32   baton           Implement rate-limit nudge
+  2026-04-21 14:05   baton           Refactor settings-patch
+  2026-04-19 08:12   other-proj      _(dropped)_
+```
+
+### General
 
 ```bash
 npx ccbaton@latest          # install or upgrade

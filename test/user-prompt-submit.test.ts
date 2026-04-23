@@ -303,6 +303,105 @@ describe("runUserPromptSubmitHook — max_tokens sourcing", () => {
   });
 });
 
+describe("runUserPromptSubmitHook — rate-limit elevation", () => {
+  // 200k window; NUDGE_HARD_UNDER_RATE_PRESSURE = 0.45 → 90k tokens at 90% rate-limit fires hard
+  test("tokens at 46%, rate5h at 95% → fires hard nudge with rate-limit copy", async () => {
+    const sessionId = "rl-elevated-fires";
+    writeStateFile(sessionId, { maxTokens: 200_000, rateLimit5hPct: 95 });
+    const transcript = writeTranscript(92_000); // 46% of 200k
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+    expect(out.hookSpecificOutput.additionalContext).toContain("5h rate-limit");
+    expect(out.hookSpecificOutput.additionalContext).toContain("95%");
+    const state = JSON.parse(readFileSync(join(STATE_DIR, `${sessionId}.json`), "utf8"));
+    expect(state.level).toBe("hard");
+  });
+
+  test("tokens at 46%, rate5h at 70% → no nudge (below soft, rate-limit not elevated)", async () => {
+    const sessionId = "rl-low";
+    writeStateFile(sessionId, { maxTokens: 200_000, rateLimit5hPct: 70 });
+    const transcript = writeTranscript(92_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("tokens at 61%, rate5h undefined → fires hard nudge with regular (token) copy", async () => {
+    const sessionId = "rl-undef-hard";
+    writeStateFile(sessionId, { maxTokens: 200_000 }); // no rateLimit5hPct
+    const transcript = writeTranscript(122_000); // > 60% hard threshold
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+    expect(out.hookSpecificOutput.additionalContext).toContain("auto-compact imminent");
+    expect(out.hookSpecificOutput.additionalContext).not.toContain("5h rate-limit");
+  });
+
+  test("tokens at 56%, rate5h at 95% → fires hard (elevated), not soft", async () => {
+    const sessionId = "rl-elevated-vs-soft";
+    writeStateFile(sessionId, { maxTokens: 200_000, rateLimit5hPct: 95 });
+    const transcript = writeTranscript(112_000); // 56% — above soft (55%), below hard (60%)
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+    expect(out.hookSpecificOutput.additionalContext).toContain("5h rate-limit");
+    const state = JSON.parse(readFileSync(join(STATE_DIR, `${sessionId}.json`), "utf8"));
+    expect(state.level).toBe("hard");
+  });
+
+  test("rate5h at exactly 89% → does NOT elevate (boundary)", async () => {
+    const sessionId = "rl-boundary";
+    writeStateFile(sessionId, { maxTokens: 200_000, rateLimit5hPct: 89 });
+    const transcript = writeTranscript(92_000); // 46% — would elevate at >=90% rate
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("rate5h > 100 or < 0 → treated as undefined (no crash, no elevation)", async () => {
+    const sessionId = "rl-invalid";
+    writeStateFile(sessionId, { maxTokens: 200_000, rateLimit5hPct: 150 });
+    const transcript = writeTranscript(92_000); // 46% — only fires hard if rate-limit elevates
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+
+    // Also negative
+    const sessionId2 = "rl-invalid-neg";
+    writeStateFile(sessionId2, { maxTokens: 200_000, rateLimit5hPct: -5 });
+    const transcript2 = writeTranscript(92_000);
+    stdoutCapture = "";
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId2, transcript_path: transcript2, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("token-driven hard nudge takes precedence over rate-limit reason when both qualify", async () => {
+    const sessionId = "rl-tokens-win";
+    writeStateFile(sessionId, { maxTokens: 200_000, rateLimit5hPct: 95 });
+    const transcript = writeTranscript(125_000); // 62.5% — over hard token threshold
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    // Token reason wins because it's checked first; copy should NOT mention rate-limit.
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+    expect(out.hookSpecificOutput.additionalContext).toContain("auto-compact imminent");
+    expect(out.hookSpecificOutput.additionalContext).not.toContain("5h rate-limit");
+  });
+});
+
 describe("runUserPromptSubmitHook — maxTokens sanitization", () => {
   test("maxTokens: 0 falls back to 200k default, does not over-fire hard nudge", async () => {
     writeStateFile("max-zero", { maxTokens: 0 });

@@ -23,6 +23,11 @@ export const SESSION_AGE_NUDGE_MS = 5 * 60 * 60 * 1000;
 /** Minimum token count for the age nudge to fire (skip trivial sessions). */
 export const SESSION_AGE_NUDGE_MIN_TOKENS = 30_000;
 
+/** 5h rate-limit usage (0–100) above which we escalate the hard nudge earlier. */
+export const RATE_LIMIT_ELEVATED_PCT = 90;
+/** Token threshold (ratio of context window) that fires the hard nudge when rate-limit is elevated. */
+export const NUDGE_HARD_UNDER_RATE_PRESSURE = 0.45;
+
 const _BATON_FRESH_MS_DEFAULT = 10 * 60 * 1000;
 const _batonFreshRaw = Number(process.env.BATON_FRESH_MS ?? _BATON_FRESH_MS_DEFAULT);
 if (process.env.BATON_FRESH_MS !== undefined && isNaN(_batonFreshRaw)) {

@@ -86,6 +86,32 @@ describe("renderStatusline — context_window_size persistence", () => {
     expect(readFileSync(statePath, "utf8")).toBe("CORRUPTED");
   });
 
+  test("cache does not inherit rateLimit5hPct from a prior session", async () => {
+    // Prime the cache with sessionA that has a rateLimit5hPct.
+    await renderStatusline(JSON.stringify({
+      session_id: "session-A",
+      context_window: ctxWindow(10_000, 128_000),
+      rate_limits: { five_hour: { used_percentage: 77 } },
+    }));
+
+    // Switch to sessionB with no rate_limits. If the cache leaks 77 from
+    // sessionA, the next identical call will miss the cache and re-write.
+    await renderStatusline(statusPayload({
+      session_id: "session-B",
+      context_window: ctxWindow(10_000, 128_000),
+    }));
+
+    const statePath = join(STATE_DIR, "session-B.json");
+    writeFileSync(statePath, "CORRUPTED");
+
+    await renderStatusline(statusPayload({
+      session_id: "session-B",
+      context_window: ctxWindow(10_000, 128_000),
+    }));
+
+    expect(readFileSync(statePath, "utf8")).toBe("CORRUPTED");
+  });
+
   test("different context_window_size busts the in-memory cache and re-writes", async () => {
     const sessionId = "cache-bust";
     await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 128_000) }));
