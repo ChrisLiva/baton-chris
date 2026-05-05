@@ -176,7 +176,51 @@ test("install uses user-level baton-template.md if present and valid", () => {
 
   const commandContent = readFileSync(report.batonCommandPath, "utf8");
   expect(commandContent).toBe(overrideContent);
+});
 
-  const skillContent = readFileSync(report.batonSkillPath, "utf8");
-  expect(skillContent).toBe(overrideContent);
+test("install does not write a separate baton skill file (the command's frontmatter auto-registers as a skill)", () => {
+  install();
+
+  const skillPath = join(TEST_HOME, ".claude", "skills", "baton", "SKILL.md");
+  expect(existsSync(skillPath)).toBe(false);
+});
+
+test("install migrates an old baton skill dir on upgrade", () => {
+  const skillDir = join(TEST_HOME, ".claude", "skills", "baton");
+  const skillPath = join(skillDir, "SKILL.md");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(skillPath, "---\nname: baton\ndescription: old skill\n---\n", "utf8");
+
+  const report = install();
+
+  expect(existsSync(skillPath)).toBe(false);
+  expect(existsSync(skillDir)).toBe(false);
+  expect(report.migratedSkills).toContain(skillDir);
+});
+
+test("install leaves a user-modified baton skill dir alone", () => {
+  const skillDir = join(TEST_HOME, ".claude", "skills", "baton");
+  const skillPath = join(skillDir, "SKILL.md");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(skillPath, "---\nname: not-baton\ndescription: user override\n---\n", "utf8");
+
+  const report = install();
+
+  expect(existsSync(skillPath)).toBe(true);
+  expect(report.migratedSkills).not.toContain(skillDir);
+});
+
+test("install leaves baton skill dir alone when it has unexpected files", () => {
+  const skillDir = join(TEST_HOME, ".claude", "skills", "baton");
+  const skillPath = join(skillDir, "SKILL.md");
+  const extra = join(skillDir, "user-notes.md");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(skillPath, "---\nname: baton\ndescription: old skill\n---\n", "utf8");
+  writeFileSync(extra, "user notes\n", "utf8");
+
+  const report = install();
+
+  expect(existsSync(skillPath)).toBe(true);
+  expect(existsSync(extra)).toBe(true);
+  expect(report.migratedSkills).not.toContain(skillDir);
 });

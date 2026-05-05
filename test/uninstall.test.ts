@@ -112,9 +112,10 @@ test("uninstall skips a user-modified drop.md and surfaces it", () => {
 
 test("uninstall refuses to recursively delete skills/baton/ when it contains unexpected files", () => {
   install();
-  expect(existsSync(BATON_SKILL_PATH)).toBe(true);
-
-  // User (or another tool) drops a file inside the skill directory.
+  // Simulate a leftover skill from a pre-cleanup baton install where the user
+  // also dropped their own file in the directory.
+  mkdirSync(BATON_SKILL_DIR, { recursive: true });
+  writeFileSync(BATON_SKILL_PATH, "---\nname: baton\ndescription: stale\n---\n", "utf8");
   const extra = join(BATON_SKILL_DIR, "user-notes.md");
   writeFileSync(extra, "my own notes, do not delete\n", "utf8");
 
@@ -135,6 +136,9 @@ test("uninstall refuses to recursively delete skills/baton/ when it contains une
 
 test("uninstall refuses to delete skills/baton/ when SKILL.md has been replaced by the user", () => {
   install();
+  // Simulate a leftover skills/baton/SKILL.md whose frontmatter the user has
+  // since rewritten — uninstall must not nuke it.
+  mkdirSync(BATON_SKILL_DIR, { recursive: true });
   writeFileSync(
     BATON_SKILL_PATH,
     "---\nname: not-baton\ndescription: overwritten\n---\n",
@@ -156,11 +160,14 @@ test("uninstall refuses to delete skills/baton/ when SKILL.md has been replaced 
   expect(skippedFile).toBeDefined();
 });
 
-test("clean uninstall after a single install removes every baton artifact", () => {
+test("clean uninstall after a single install removes every baton artifact, including a stale skill leftover", () => {
   install();
   expect(existsSync(BATON_CMD_PATH)).toBe(true);
   expect(existsSync(DROP_CMD_PATH)).toBe(true);
-  expect(existsSync(BATON_SKILL_PATH)).toBe(true);
+  // Simulate a leftover skill from a pre-cleanup install. The current installer
+  // does not write this file, but uninstall must still clean it up if present.
+  mkdirSync(BATON_SKILL_DIR, { recursive: true });
+  writeFileSync(BATON_SKILL_PATH, "---\nname: baton\ndescription: stale\n---\n", "utf8");
 
   const report = uninstall();
 
@@ -258,6 +265,9 @@ test("legacy baton install upgrades to a surgical uninstall baseline instead of 
 
 test("uninstall reports extras by name when skills/baton/ has multiple unexpected files", () => {
   install();
+  // Simulate a leftover skill dir with extras; uninstall must list them all.
+  mkdirSync(BATON_SKILL_DIR, { recursive: true });
+  writeFileSync(BATON_SKILL_PATH, "---\nname: baton\ndescription: stale\n---\n", "utf8");
   writeFileSync(join(BATON_SKILL_DIR, "a.md"), "a", "utf8");
   writeFileSync(join(BATON_SKILL_DIR, "b.txt"), "b", "utf8");
 
