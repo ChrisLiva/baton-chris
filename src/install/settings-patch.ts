@@ -79,12 +79,9 @@ export interface InstallReport {
   wroteSessionStart: boolean;
   wroteBatonCommand: boolean;
   wroteDropCommand: boolean;
-  wroteBatonSkill: boolean;
-  skillsDirCreated: boolean;
   settingsPath: string;
   batonCommandPath: string;
   dropCommandPath: string;
-  batonSkillPath: string;
   migratedCommands: string[];
   migratedSkills: string[];
   templateSource: "bundled" | "override" | "extended";
@@ -236,19 +233,6 @@ function writeDropCommand(commandsDir: string, cmdPath: string): boolean {
   return writeFileIfChanged(cmdPath, dropCommandBody());
 }
 
-/**
- * Install the baton skill at ~/.claude/skills/baton/SKILL.md. Returns
- * `{ wrote, dirCreated }` so the installer can surface a restart warning when
- * the top-level skills/ directory didn't exist before — per Claude Code docs,
- * newly-created top-level skills dirs aren't hot-reloaded until restart.
- */
-function writeBatonSkill(skillsDir: string, skillDir: string, skillPath: string, body: string): { wrote: boolean; dirCreated: boolean } {
-  const dirCreated = !existsSync(skillsDir);
-  mkdirSync(skillDir, { recursive: true });
-  const wrote = writeFileIfChanged(skillPath, body);
-  return { wrote, dirCreated };
-}
-
 function startsWithFrontmatter(path: string, expectedName: string): boolean {
   try {
     const buf = readFileSync(path, "utf8").slice(0, 80).replace(/\r\n/g, "\n");
@@ -259,8 +243,13 @@ function startsWithFrontmatter(path: string, expectedName: string): boolean {
 }
 
 /**
- * Remove old handoff/handoff-discard commands and the handoff skill dir if they
- * were written by a prior baton install (identified by frontmatter name check).
+ * Remove obsolete baton-owned artifacts left behind by older versions:
+ * the handoff command/skill (renamed to baton long ago), and the baton skill
+ * (the command file's frontmatter now auto-registers it as a skill, so the
+ * separate SKILL.md was producing a duplicate /baton picker entry).
+ *
+ * Identified by frontmatter name. Skill dirs are only removed if SKILL.md is
+ * the sole file inside, to avoid clobbering anything a user dropped in.
  */
 function migrateOldArtifacts(userCommandsDir: string, userSkillsDir: string): { migratedCommands: string[]; migratedSkills: string[] } {
   const migratedCommands: string[] = [];
@@ -278,14 +267,23 @@ function migrateOldArtifacts(userCommandsDir: string, userSkillsDir: string): { 
     migratedCommands.push(oldDiscardCmd);
   }
 
-  const oldSkillDir = join(userSkillsDir, "handoff");
-  const oldSkillFile = join(oldSkillDir, "SKILL.md");
-  if (existsSync(oldSkillFile) && startsWithFrontmatter(oldSkillFile, "handoff")) {
-    // Only delete if SKILL.md is the only file in the directory.
-    const entries = readdirSync(oldSkillDir);
+  const oldHandoffSkillDir = join(userSkillsDir, "handoff");
+  const oldHandoffSkillFile = join(oldHandoffSkillDir, "SKILL.md");
+  if (existsSync(oldHandoffSkillFile) && startsWithFrontmatter(oldHandoffSkillFile, "handoff")) {
+    const entries = readdirSync(oldHandoffSkillDir);
     if (entries.length === 1 && entries[0] === "SKILL.md") {
-      rmSync(oldSkillDir, { recursive: true });
-      migratedSkills.push(oldSkillDir);
+      rmSync(oldHandoffSkillDir, { recursive: true });
+      migratedSkills.push(oldHandoffSkillDir);
+    }
+  }
+
+  const oldBatonSkillDir = join(userSkillsDir, "baton");
+  const oldBatonSkillFile = join(oldBatonSkillDir, "SKILL.md");
+  if (existsSync(oldBatonSkillFile) && startsWithFrontmatter(oldBatonSkillFile, "baton")) {
+    const entries = readdirSync(oldBatonSkillDir);
+    if (entries.length === 1 && entries[0] === "SKILL.md") {
+      rmSync(oldBatonSkillDir, { recursive: true });
+      migratedSkills.push(oldBatonSkillDir);
     }
   }
 
@@ -480,8 +478,6 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const batonCmdPath = userBatonCommandPath();
   const dropCmdPath = userDropCommandPath();
   const skillsDir = userSkillsDir();
-  const batonSkillDir = userBatonSkillDir();
-  const batonSkillPath = userBatonSkillPath();
 
   mkdirSync(claudeDir, { recursive: true });
   const settings = loadSettings(settingsPath);
@@ -506,7 +502,6 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const templateBody = templateResult.body;
   const wroteBatonCommand = writeBatonCommand(commandsDir, batonCmdPath, templateBody);
   const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
-  const skillResult = writeBatonSkill(skillsDir, batonSkillDir, batonSkillPath, templateBody);
 
   writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
 
@@ -521,12 +516,9 @@ export function install(opts: InstallOptions = {}): InstallReport {
     wroteSessionStart: wroteSs,
     wroteBatonCommand,
     wroteDropCommand,
-    wroteBatonSkill: skillResult.wrote,
-    skillsDirCreated: skillResult.dirCreated,
     settingsPath,
     batonCommandPath: batonCmdPath,
     dropCommandPath: dropCmdPath,
-    batonSkillPath,
     migratedCommands,
     migratedSkills,
     templateSource: templateResult.source,
@@ -541,7 +533,7 @@ export function printReport(r: InstallReport): void {
   // --postinstall: silent if nothing changed, one-liner if first install.
   if (r.postinstall) {
     const anyNew = r.wroteStatusline || r.wroteUserPromptSubmit || r.wrotePreCompact ||
-      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand || r.wroteBatonSkill;
+      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand;
     if (!anyNew) return;
     process.stdout.write(
       color.green("✓") + ` baton v${VERSION} installed — restart Claude Code to activate.\n`,
@@ -566,7 +558,6 @@ export function printReport(r: InstallReport): void {
   const templateSuffix = r.templateSource !== "bundled" ? color.dim(` (template: ${r.templateSource})`) : "";
   lines.push(`  ${tick(r.wroteBatonCommand)}  /baton command${templateSuffix}`);
   lines.push(`  ${tick(r.wroteDropCommand)}  /drop command`);
-  lines.push(`  ${tick(r.wroteBatonSkill)}  baton skill`);
 
   if (r.migratedCommands.length > 0 || r.migratedSkills.length > 0) {
     lines.push("");
@@ -577,11 +568,6 @@ export function printReport(r: InstallReport): void {
   lines.push("");
   if (r.backupPath) {
     lines.push(`  ${color.dim("settings backed up →")} ${color.dim(r.backupPath)}`);
-    lines.push("");
-  }
-  if (r.skillsDirCreated) {
-    lines.push(`  ${color.hex("#ff8800")("⚠")}  ~/.claude/skills/ is new — Claude Code needs a full restart`);
-    lines.push(`     before it picks up the /baton skill.`);
     lines.push("");
   }
   lines.push(`  Restart Claude Code, then type ${color.cyan.bold("/baton")} to snapshot at any time.`);
@@ -598,7 +584,6 @@ export interface CheckReport {
   sessionStart: boolean;
   batonCommand: boolean;
   dropCommand: boolean;
-  batonSkill: boolean;
   installedAt: string | null;
   backupPath: string | null;
   allPresent: boolean;
@@ -625,7 +610,6 @@ export function check(): CheckReport {
   const ss = hasHook("SessionStart", HOOK_SS_CMD);
   const batonCmd = existsSync(userBatonCommandPath());
   const dropCmd = existsSync(userDropCommandPath());
-  const skill = existsSync(userBatonSkillPath());
 
   let installedAt: string | null = null;
   let backupPath: string | null = null;
@@ -638,7 +622,7 @@ export function check(): CheckReport {
     } catch { /* ignore */ }
   }
 
-  const allPresent = statusPresent && statusCurrent && ups && pc && ss && batonCmd && dropCmd && skill;
+  const allPresent = statusPresent && statusCurrent && ups && pc && ss && batonCmd && dropCmd;
 
   return {
     version: VERSION,
@@ -648,7 +632,6 @@ export function check(): CheckReport {
     sessionStart: ss,
     batonCommand: batonCmd,
     dropCommand: dropCmd,
-    batonSkill: skill,
     installedAt,
     backupPath,
     allPresent,
@@ -673,7 +656,6 @@ export function printCheckReport(r: CheckReport): void {
   lines.push(row("SessionStart", r.sessionStart));
   lines.push(row("/baton command", r.batonCommand));
   lines.push(row("/drop command", r.dropCommand));
-  lines.push(row("baton skill", r.batonSkill));
   if (r.installedAt) {
     lines.push("");
     lines.push(`  ${color.dim("installed")} ${color.dim(r.installedAt.slice(0, 10))}`);
