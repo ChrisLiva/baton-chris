@@ -1,7 +1,7 @@
 {
   "name": "ccbaton",
-  "version": "0.3.6",
-  "description": "Context-aware session baton for Claude Code. Statusline + /baton + PreCompact safety net.",
+  "version": "0.3.7",
+  "description": "Claude Code plugin: context statusline, session snapshots via BATON.md, PreCompact safety net, and AI sidecar reviews with Codex/Gemini.",
   "repository": {
     "type": "git",
     "url": "https://github.com/mjbarefo/baton"
