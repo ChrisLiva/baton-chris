@@ -21,6 +21,7 @@ const COMMANDS_DIR = join(CLAUDE_DIR, "commands");
 const SKILLS_DIR = join(CLAUDE_DIR, "skills");
 const BATON_CMD_PATH = join(COMMANDS_DIR, "baton.md");
 const DROP_CMD_PATH = join(COMMANDS_DIR, "drop.md");
+const BATON_CODEX_CMD_PATH = join(COMMANDS_DIR, "baton-codex.md");
 const BATON_SKILL_DIR = join(SKILLS_DIR, "baton");
 const BATON_SKILL_PATH = join(BATON_SKILL_DIR, "SKILL.md");
 
@@ -164,6 +165,7 @@ test("clean uninstall after a single install removes every baton artifact, inclu
   install();
   expect(existsSync(BATON_CMD_PATH)).toBe(true);
   expect(existsSync(DROP_CMD_PATH)).toBe(true);
+  expect(existsSync(BATON_CODEX_CMD_PATH)).toBe(true);
   // Simulate a leftover skill from a pre-cleanup install. The current installer
   // does not write this file, but uninstall must still clean it up if present.
   mkdirSync(BATON_SKILL_DIR, { recursive: true });
@@ -173,15 +175,36 @@ test("clean uninstall after a single install removes every baton artifact, inclu
 
   expect(existsSync(BATON_CMD_PATH)).toBe(false);
   expect(existsSync(DROP_CMD_PATH)).toBe(false);
+  expect(existsSync(BATON_CODEX_CMD_PATH)).toBe(false);
   expect(existsSync(BATON_SKILL_PATH)).toBe(false);
   expect(existsSync(BATON_SKILL_DIR)).toBe(false);
   expect(existsSync(installManifestPath())).toBe(false);
   expect(report.removedFiles).toContain(BATON_CMD_PATH);
   expect(report.removedFiles).toContain(DROP_CMD_PATH);
+  expect(report.removedFiles).toContain(BATON_CODEX_CMD_PATH);
   expect(report.removedFiles).toContain(BATON_SKILL_PATH);
   // Nothing should be flagged as user-modified.
   const preserved = report.skippedFiles.filter((s) => s.reason !== "not found");
   expect(preserved).toHaveLength(0);
+});
+
+test("uninstall skips a user-modified baton-codex.md and surfaces it", () => {
+  install();
+  expect(existsSync(BATON_CODEX_CMD_PATH)).toBe(true);
+
+  writeFileSync(
+    BATON_CODEX_CMD_PATH,
+    "---\nname: my-custom-codex\ndescription: user override\n---\n\nHello\n",
+    "utf8",
+  );
+
+  const report = uninstall();
+
+  expect(existsSync(BATON_CODEX_CMD_PATH)).toBe(true);
+  const skipped = report.skippedFiles.find((s) => s.path === BATON_CODEX_CMD_PATH);
+  expect(skipped).toBeDefined();
+  expect(skipped!.reason).toContain("user-modified");
+  expect(report.removedFiles).not.toContain(BATON_CODEX_CMD_PATH);
 });
 
 test("uninstall with no prior manifest falls back to surgical settings edit without touching unrelated hooks", () => {
