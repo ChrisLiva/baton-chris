@@ -109,7 +109,11 @@ function loadSettings(settingsPath: string): Settings {
 function backup(settingsPath: string): string | null {
   if (!existsSync(settingsPath)) return null;
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const path = `${settingsPath}.baton-backup-${ts}`;
+  const basePath = `${settingsPath}.baton-backup-${ts}`;
+  let path = basePath;
+  for (let i = 1; existsSync(path); i++) {
+    path = `${basePath}-${i}`;
+  }
   copyFileSync(settingsPath, path);
   return path;
 }
