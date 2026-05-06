@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (OpenAI's CLI coding agent) when working with code in this repository.
 
 ## What This Is
 
-baton is a Claude Code plugin (published as `ccbaton` on npm) that snapshots session state into a structured `BATON.md` so a fresh `/clear` session can resume without context rot. It installs a statusline, three hooks (`UserPromptSubmit`, `PreCompact`, `SessionStart`), and `/baton`, `/drop`, `/baton-codex`, and `/baton-gemini` slash commands into `~/.claude/`.
+baton is a Claude Code plugin (published as `ccbaton` on npm) that snapshots session state into a structured `BATON.md` so a fresh `/clear` session can resume without context rot. It installs a statusline, three hooks (`UserPromptSubmit`, `PreCompact`, `SessionStart`), and `/baton` + `/drop` slash commands into `~/.claude/`.
 
 ## Commands
 
@@ -29,24 +29,14 @@ bun run src/cli.ts install     # install from source into ~/.claude/
   - `user-prompt-submit.ts` — nudges Claude to `/baton` when context crosses soft/hard thresholds (defined in `config.ts`). At the hard threshold, injects the full baton protocol as `assistant_mdm`. Also fires a time-based nudge when session age ≥ 5 hours (`SESSION_AGE_NUDGE_MS`) with at least 30k tokens in context (`SESSION_AGE_NUDGE_MIN_TOKENS`); the time nudge only fires when token pressure is `"none"` and is sent at most once per session via the `timeNudgeSent` flag in the state file.
   - `pre-compact.ts` — intercepts auto-compaction. If a fresh baton exists, blocks compaction. Otherwise writes a fallback baton deterministically from the transcript, then blocks.
   - `session-start.ts` — on `/clear` or resume, reads `BATON.md`, injects it as `additionalContext`, then archives it so the resume is one-shot.
-- `src/baton/` — baton lifecycle:
-  - `archive.ts` — move baton to timestamped archive
-  - `archive-library.ts` — `list`, `show`, `prune`, `recall` operations on the archive directory
-  - `catch.ts` — CLI resume from nearest `BATON.md`
-  - `drop.ts` — discard baton so `/clear` starts fresh
-  - `fallback-writer.ts` — deterministic baton written from transcript when `PreCompact` fires without a fresh baton
-  - `find.ts` — walk up from cwd to locate nearest `BATON.md`
-  - `reconstruct.ts` — rebuild a baton from a transcript JSONL file (`reconstruct` subcommand)
-  - `redact.ts` — strip secrets from baton body before sending to a sidecar; loads default patterns plus user/project overrides
-  - `state.ts` — read/write the per-session state file
-  - `template-loader.ts` — reads the `/baton` command template
-- `src/sidecar/` — headless second-opinion runners invoked via `/baton-codex` and `/baton-gemini`:
-  - `run.ts` — shared orchestration: finds and redacts the baton, picks the host adapter, spawns the subprocess, streams output. Exposes `runSidecar({ host, mode, cwd, dryRun })` and the `HostAdapter` interface.
-  - `prompts.ts` — defines `SidecarMode` (`review` | `critique` | `alternative`), per-mode preambles, and `composePrompt()` which prepends the preamble to the redacted baton body.
-  - `codex.ts` — `codexAdapter`: invokes `codex exec -c model_reasoning_effort=xhigh --sandbox read-only --ephemeral -`, sending the prompt on stdin.
-  - `gemini.ts` — `geminiAdapter`: invokes `gemini --prompt <prompt> --model pro --approval-mode plan` as argv (no stdin).
+- `src/baton/` — baton lifecycle: `archive.ts` (move to timestamped archive), `catch.ts` (CLI resume), `drop.ts` (discard baton), `fallback-writer.ts` (deterministic baton from transcript), `template-loader.ts` (reads the `/baton` command template).
 - `src/transcript/` — `read.ts` parses JSONL transcripts; `tokens.ts` extracts token snapshots from the latest assistant usage entry.
-- `src/install/settings-patch.ts` — patches `~/.claude/settings.json` idempotently: merges hooks, sets statusline, writes skill + command files (including `/baton-codex` and `/baton-gemini`), prunes stale entries, migrates old "handoff" artifacts. Backs up settings before modifying with collision avoidance (iterates a numeric suffix if the backup path already exists). Also exports `check()` (read-only install state inspection) and `uninstall()`. Output uses ANSI color via `src/statusline/color.ts`. The `--postinstall` flag suppresses output when nothing changed, for use in `package.json`'s `postinstall` script.
+- `src/sidecar/` — headless second-opinion runners invoked via the `/baton-codex` and `/baton-gemini` slash commands:
+  - `run.ts` — orchestrates sidecar execution: finds `BATON.md`, redacts secrets, composes the prompt, checks PATH for the target binary, and spawns it. Supports `--dry-run` (prints argv + prompt without running). Defines the `HostAdapter` interface and `SidecarHost` type.
+  - `prompts.ts` — defines the three `SidecarMode` values (`review`, `critique`, `alternative`) and their preambles. `composePrompt()` appends the baton body and a hard instruction not to modify files, run commands, or exit plan mode.
+  - `codex.ts` — `codexAdapter`: invokes `codex exec -c model_reasoning_effort=xhigh --sandbox read-only --ephemeral -` with the prompt on stdin.
+  - `gemini.ts` — `geminiAdapter`: invokes `gemini --prompt <prompt> --model pro --approval-mode plan`.
+- `src/install/settings-patch.ts` — patches `~/.claude/settings.json` idempotently: merges hooks, sets statusline, writes skill + command files, prunes stale entries, migrates old "handoff" artifacts. Backs up settings before modifying (with collision avoidance). Also exports `check()` (read-only install state inspection) and `uninstall()`. Output uses ANSI color via `src/statusline/color.ts`. The `--postinstall` flag suppresses output when nothing changed, for use in `package.json`'s `postinstall` script.
 
 **Build:** `scripts/build.ts` uses `bun build` targeting Node, replaces the shebang, and copies `src/baton/template.md` to `dist/baton/template.md`.
 
@@ -59,9 +49,7 @@ bun run src/cli.ts install     # install from source into ~/.claude/
 - **Token counting uses last assistant entry only:** The most recent main-chain assistant message's `usage` field represents current context size. Summing all entries would double-count cached tokens.
 - **Freshness window:** `BATON_FRESH_MS` (default 10 min, configurable via env) gates whether `SessionStart` injects and whether `PreCompact` considers an existing baton sufficient.
 - **State normalization:** The statusline writes `{ maxTokens }` to the per-session state file without a `level` field. `readState()` in `user-prompt-submit.ts` explicitly normalizes missing or invalid `level` values to `"none"`. Without this, a statusline-written state causes the soft nudge to silently skip — users jump straight to the hard-stop.
-- **Sidecar host adapter pattern:** `run.ts` defines a `HostAdapter` interface (`binaryName`, `installHint`, `buildInvocation`). Each host (`codex.ts`, `gemini.ts`) exports a single adapter constant. Adding a new host requires only a new adapter file and a branch in `pickAdapter()` — no changes to the shared orchestration.
-- **Sidecar redaction before send:** `run.ts` redacts the baton body using patterns from `src/baton/redact.ts` before constructing the prompt. Default patterns plus user (`~/.claude/.batonredact`) and project (`.batonredact`) overrides are all applied. Redaction count is printed to stderr so the user knows secrets were stripped.
-- **Backup collision avoidance:** `backup()` in `settings-patch.ts` appends an incrementing numeric suffix (e.g. `-1`, `-2`) if the timestamped backup path already exists. This prevents silent overwrites when `install()` is called multiple times within the same second.
+- **Sidecar is read-only and ephemeral:** Both adapters pass flags that prevent the sidecar agent from writing files or executing shell commands. Secrets are redacted from the baton body before it is sent to any external CLI.
 
 ## Testing
 

@@ -1,0 +1,77 @@
+baton (`ccbaton` on npm) is a Claude Code plugin that snapshots session state into a structured `BATON.md` so a fresh `/clear` session can resume without context rot. It installs a statusline, three hooks (`UserPromptSubmit`, `PreCompact`, `SessionStart`), and `/baton`, `/drop`, `/baton-codex`, and `/baton-gemini` slash commands into `~/.claude/`.
+
+## Dev Commands
+
+```bash
+bun install                                      # install deps
+bun test                                         # run all tests
+bun test test/tokens.test.ts                     # run a single test file
+bun run build                                    # bundle to dist/cli.js (Node shebang, portable)
+bun run typecheck                                # tsc --noEmit
+bun run src/cli.ts install                       # install from source into ~/.claude/
+bun run src/cli.ts check                         # verify current install state (read-only)
+```
+
+## Architecture
+
+**Entry point:** `src/cli.ts` — switch on subcommand (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `catch`, `drop`, `reconstruct`, `list`, `show`, `prune`, `recall`, `sidecar`). All subcommands read stdin or CLI args; none are interactive.
+
+**`src/config.ts`** — shared constants, paths (`userClaudeDir()`, `userSettingsPath()`), token thresholds, `VERSION` from `package.json`, and `buildCommand()` which generates self-locating absolute hook paths (source: `bun run .../cli.ts`; published: `node .../cli.js`).
+
+**`src/statusline/`** — one-line status bar renderer. `render.ts` orchestrates; `widgets.ts` has individual renderers (model, branch, baton badge, rate limit, duration, cost); `bar.ts` draws the context gauge; `color.ts` wraps ANSI codes.
+
+**`src/hooks/`** — one file per Claude Code hook event:
+- `user-prompt-submit.ts` — nudges Claude to `/baton` at soft/hard token thresholds. At hard threshold injects the full baton protocol as `assistant_mdm`. Also fires a time-based nudge at ≥5 h session age with ≥30k tokens, once per session via `timeNudgeSent` in the state file.
+- `pre-compact.ts` — always outputs `{ decision: "block" }`. If a fresh baton exists, blocks immediately. Otherwise writes a fallback baton from the transcript first, then blocks. Never returns `"allow"`.
+- `session-start.ts` — reads `BATON.md`, injects it as `additionalContext`, then archives it (one-shot resume).
+
+**`src/baton/`** — baton lifecycle:
+- `archive.ts` — move baton to timestamped archive
+- `archive-library.ts` — `list`, `show`, `prune`, `recall` operations on the archive directory
+- `catch.ts` — CLI resume from nearest `BATON.md`
+- `drop.ts` — archive and discard baton so `/clear` starts fresh
+- `fallback-writer.ts` — deterministic baton from transcript (used by `PreCompact`)
+- `find.ts` — walk up from cwd to locate nearest `BATON.md`
+- `reconstruct.ts` — rebuild baton from a transcript JSONL (`reconstruct` subcommand)
+- `redact.ts` — strip secrets before sidecar send; loads default patterns plus user (`~/.claude/.batonredact`) and project (`.batonredact`) overrides
+- `state.ts` — read/write per-session state file
+- `template-loader.ts` — reads the `/baton` command template
+
+**`src/sidecar/`** — headless second-opinion runners for `/baton-codex` and `/baton-gemini`:
+- `run.ts` — shared orchestration: find and redact baton, pick host adapter, spawn subprocess, stream output. Exports `runSidecar({ host, mode, cwd, dryRun })` and the `HostAdapter` interface.
+- `prompts.ts` — `SidecarMode` (`review` | `critique` | `alternative`), per-mode preambles, `composePrompt()`.
+- `codex.ts` — `codexAdapter`: invokes `codex exec -c model_reasoning_effort=xhigh --sandbox read-only --ephemeral -`, sends prompt on stdin.
+- `gemini.ts` — `geminiAdapter`: invokes `gemini --prompt <prompt> --model pro --approval-mode plan` as argv (no stdin).
+
+**`src/transcript/`** — `read.ts` parses JSONL transcripts; `tokens.ts` extracts token snapshots from the latest assistant usage entry.
+
+**`src/install/settings-patch.ts`** — idempotently patches `~/.claude/settings.json`: merges hooks, sets statusline, writes skill and command files (including `/baton-codex` and `/baton-gemini`), prunes stale entries, migrates old "handoff" artifacts. Exports `install()`, `check()`, `uninstall()`. Uses backup collision avoidance (numeric suffix on timestamped backup path). `--postinstall` flag suppresses output when nothing changed.
+
+**`scripts/build.ts`** — `bun build` targeting Node, replaces shebang, copies `src/baton/template.md` to `dist/baton/template.md`.
+
+## Key Design Decisions
+
+- **Self-locating commands:** `buildCommand()` generates absolute paths so hooks survive `npx`/`bunx` exits. Source installs use `bun run`; published installs use `node`.
+- **Idempotent install:** Detects existing hooks/statusline by command string, prunes stale entries pointing at old paths, writes files only when content changed.
+- **PreCompact always blocks:** The hook always outputs `{ decision: "block" }` — never `"allow"`. A fallback baton is written first if no fresh one exists.
+- **Transcript format:** Claude Code transcripts are JSONL. Each line has `type`, `isSidechain`, `isApiErrorMessage`, and `message`. Only main-chain entries (not sidechain, not API errors) are used.
+- **Token counting uses last assistant entry only:** Summing all entries double-counts cached tokens. Only the most recent main-chain assistant `usage` field is authoritative.
+- **Freshness window:** `BATON_FRESH_MS` (default 10 min, configurable via env) gates `SessionStart` injection and `PreCompact` sufficiency check.
+- **State normalization:** `readState()` in `user-prompt-submit.ts` normalizes missing/invalid `level` to `"none"`. Without this, statusline-written state (which omits `level`) causes the soft nudge to silently skip, jumping users straight to the hard-stop.
+- **Sidecar host adapter pattern:** `HostAdapter` interface in `run.ts` (`binaryName`, `installHint`, `buildInvocation`). Each host exports one adapter constant. Adding a new host requires a new adapter file and a branch in `pickAdapter()` — no changes to shared orchestration.
+- **Sidecar redaction:** `run.ts` redacts the baton body before constructing the prompt. Redaction count is printed to stderr.
+- **Backup collision avoidance:** `backup()` in `settings-patch.ts` appends incrementing numeric suffix if the timestamped backup path already exists.
+
+## Testing
+
+- Runner: Bun's built-in test runner (`bun test`)
+- Test files: `test/` directory, one file per module under test
+- Fixtures: `test/fixtures.ts` generates synthetic JSONL transcripts
+- Helpers: `test/helpers/`
+- Pattern: write real files to temp dirs via `mkdtempSync`, invoke actual functions — no mocking framework, no stubs
+
+## Platform Notes
+
+- Windows paths normalized via `.replace(/\\/g, "/")` in `cliPath()` for shell compatibility
+- `chmod` in build script is best-effort (no-op on Windows)
+- `userHomeDir()` prefers `USERPROFILE` on win32, `HOME` otherwise
