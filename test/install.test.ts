@@ -53,6 +53,18 @@ test("install writes the /drop slash command with the CLI path baked in", () => 
   expect(body).toMatch(/bun run "[^"]+cli\.ts" drop/);
 });
 
+test("install writes the /baton-codex slash command pointing at sidecar codex", () => {
+  const report = install();
+
+  expect(report.wroteBatonCodexCommand).toBe(true);
+  expect(report.batonCodexCommandPath).toMatch(/baton-codex\.md$/);
+
+  const body = readFileSync(report.batonCodexCommandPath, "utf8");
+  expect(body).toContain("name: baton-codex");
+  expect(body).toContain("AskUserQuestion");
+  expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar codex --mode/);
+});
+
 test("source-mode hook commands are self-locating bun invocations", () => {
   install();
 

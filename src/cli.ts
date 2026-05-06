@@ -8,6 +8,8 @@ import { VERSION } from "./config.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 import { runReconstruct } from "./baton/reconstruct.ts";
+import { runSidecar, type SidecarHost } from "./sidecar/run.ts";
+import { isSidecarMode, type SidecarMode } from "./sidecar/prompts.ts";
 import {
   listArchives,
   showArchive,
@@ -46,6 +48,9 @@ function usage(): void {
       "  show <id|prefix>            show an archived baton",
       "  prune [--keep N] [--older-than-days D] [--dry-run]  delete old archived batons",
       "  recall <query> [--json]     search archived batons",
+      "  sidecar codex [--mode review|critique|alternative] [--dry-run]",
+      "                              run Codex CLI headlessly with the current BATON.md",
+      "                              as context for a second opinion (read-only, ephemeral)",
       "",
       "Internal (Claude Code pipes data on stdin):",
       "  statusline                  render the statusline",
@@ -172,6 +177,34 @@ async function main(): Promise<number> {
       const result = pruneArchives({ keep, olderThanDays, dryRun });
       printPrune(result, dryRun);
       return 0;
+    }
+    case "sidecar": {
+      const host = args[1];
+      if (host !== "codex" && host !== "gemini") {
+        process.stderr.write(
+          `baton sidecar: missing or unknown host "${host ?? ""}" (expected 'codex' or 'gemini')\n`,
+        );
+        return 2;
+      }
+      const subArgs = args.slice(2);
+      const modeIdx = subArgs.indexOf("--mode");
+      let mode: SidecarMode = "review";
+      if (modeIdx >= 0) {
+        const value = subArgs[modeIdx + 1];
+        if (!value || value.startsWith("--")) {
+          process.stderr.write("baton sidecar: --mode requires a value (review|critique|alternative)\n");
+          return 2;
+        }
+        if (!isSidecarMode(value)) {
+          process.stderr.write(
+            `baton sidecar: unknown --mode "${value}" (expected review|critique|alternative)\n`,
+          );
+          return 2;
+        }
+        mode = value;
+      }
+      const dryRun = subArgs.includes("--dry-run");
+      return await runSidecar({ host: host as SidecarHost, mode, cwd: process.cwd(), dryRun });
     }
     case "recall": {
       const json = rest.includes("--json");

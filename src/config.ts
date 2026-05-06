@@ -68,6 +68,10 @@ export function userDropCommandPath(): string {
   return join(userCommandsDir(), "drop.md");
 }
 
+export function userBatonCodexCommandPath(): string {
+  return join(userCommandsDir(), "baton-codex.md");
+}
+
 export function userSkillsDir(): string {
   return join(userClaudeDir(), "skills");
 }

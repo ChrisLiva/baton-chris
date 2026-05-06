@@ -6,6 +6,7 @@ import {
   VERSION,
   buildCommand,
   installManifestPath,
+  userBatonCodexCommandPath,
   userBatonCommandPath,
   userBatonSkillDir,
   userBatonSkillPath,
@@ -29,6 +30,8 @@ const KNOWN_SUBCOMMANDS = [
   "hook session-start",
   "catch",
   "drop",
+  "sidecar codex",
+  "sidecar gemini",
 ];
 
 function isBatonCommand(cmd: string | undefined): boolean {
@@ -79,9 +82,11 @@ export interface InstallReport {
   wroteSessionStart: boolean;
   wroteBatonCommand: boolean;
   wroteDropCommand: boolean;
+  wroteBatonCodexCommand: boolean;
   settingsPath: string;
   batonCommandPath: string;
   dropCommandPath: string;
+  batonCodexCommandPath: string;
   migratedCommands: string[];
   migratedSkills: string[];
   templateSource: "bundled" | "override" | "extended";
@@ -231,6 +236,37 @@ function dropCommandBody(): string {
 function writeDropCommand(commandsDir: string, cmdPath: string): boolean {
   mkdirSync(commandsDir, { recursive: true });
   return writeFileIfChanged(cmdPath, dropCommandBody());
+}
+
+function batonCodexCommandBody(): string {
+  return [
+    "---",
+    "name: baton-codex",
+    "description: Run Codex CLI headlessly with the current BATON.md as context for a second opinion. Invoke when the user runs /baton-codex and wants Codex to review, critique, or propose an alternative grounded in the current baton.",
+    "disable-model-invocation: false",
+    "---",
+    "",
+    "# /baton-codex — Codex sidecar",
+    "",
+    "1. Use AskUserQuestion with header \"Codex mode\" to ask the user which mode to run in. The three options are:",
+    "   - \"review\" — Codex audits the plan for gaps and hidden assumptions",
+    "   - \"critique\" — Codex argues against the approach",
+    "   - \"alternative\" — Codex proposes a different approach",
+    "",
+    "2. Run this exact command using the Bash tool, and nothing else, replacing `<MODE>` with the user's pick:",
+    "",
+    "```bash",
+    `${buildCommand("sidecar codex --mode")} <MODE>`,
+    "```",
+    "",
+    "3. After the command exits, relay whatever it printed verbatim, then stop. Do not write any files. Do not re-plan. Do not act on Codex's suggestions — that is the user's call.",
+    "",
+  ].join("\n");
+}
+
+function writeBatonCodexCommand(commandsDir: string, cmdPath: string): boolean {
+  mkdirSync(commandsDir, { recursive: true });
+  return writeFileIfChanged(cmdPath, batonCodexCommandBody());
 }
 
 function startsWithFrontmatter(path: string, expectedName: string): boolean {
@@ -395,6 +431,7 @@ export function uninstall(): UninstallReport {
   // we only delete the file if its frontmatter still matches what we wrote.
   removeIfBatonOwned(userBatonCommandPath(), "baton", removedFiles, skippedFiles);
   removeIfBatonOwned(userDropCommandPath(), "drop", removedFiles, skippedFiles);
+  removeIfBatonOwned(userBatonCodexCommandPath(), "baton-codex", removedFiles, skippedFiles);
 
   // Skill directory: gated two ways. SKILL.md must still be baton-owned, AND
   // the directory must contain nothing unexpected. If either check fails we
@@ -477,6 +514,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const commandsDir = userCommandsDir();
   const batonCmdPath = userBatonCommandPath();
   const dropCmdPath = userDropCommandPath();
+  const batonCodexCmdPath = userBatonCodexCommandPath();
   const skillsDir = userSkillsDir();
 
   mkdirSync(claudeDir, { recursive: true });
@@ -502,6 +540,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const templateBody = templateResult.body;
   const wroteBatonCommand = writeBatonCommand(commandsDir, batonCmdPath, templateBody);
   const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
+  const wroteBatonCodexCommand = writeBatonCodexCommand(commandsDir, batonCodexCmdPath);
 
   writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
 
@@ -516,9 +555,11 @@ export function install(opts: InstallOptions = {}): InstallReport {
     wroteSessionStart: wroteSs,
     wroteBatonCommand,
     wroteDropCommand,
+    wroteBatonCodexCommand,
     settingsPath,
     batonCommandPath: batonCmdPath,
     dropCommandPath: dropCmdPath,
+    batonCodexCommandPath: batonCodexCmdPath,
     migratedCommands,
     migratedSkills,
     templateSource: templateResult.source,
@@ -533,7 +574,7 @@ export function printReport(r: InstallReport): void {
   // --postinstall: silent if nothing changed, one-liner if first install.
   if (r.postinstall) {
     const anyNew = r.wroteStatusline || r.wroteUserPromptSubmit || r.wrotePreCompact ||
-      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand;
+      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand || r.wroteBatonCodexCommand;
     if (!anyNew) return;
     process.stdout.write(
       color.green("✓") + ` baton v${VERSION} installed — restart Claude Code to activate.\n`,
@@ -558,6 +599,7 @@ export function printReport(r: InstallReport): void {
   const templateSuffix = r.templateSource !== "bundled" ? color.dim(` (template: ${r.templateSource})`) : "";
   lines.push(`  ${tick(r.wroteBatonCommand)}  /baton command${templateSuffix}`);
   lines.push(`  ${tick(r.wroteDropCommand)}  /drop command`);
+  lines.push(`  ${tick(r.wroteBatonCodexCommand)}  /baton-codex command`);
 
   if (r.migratedCommands.length > 0 || r.migratedSkills.length > 0) {
     lines.push("");
@@ -584,6 +626,7 @@ export interface CheckReport {
   sessionStart: boolean;
   batonCommand: boolean;
   dropCommand: boolean;
+  batonCodexCommand: boolean;
   installedAt: string | null;
   backupPath: string | null;
   allPresent: boolean;
@@ -610,6 +653,7 @@ export function check(): CheckReport {
   const ss = hasHook("SessionStart", HOOK_SS_CMD);
   const batonCmd = existsSync(userBatonCommandPath());
   const dropCmd = existsSync(userDropCommandPath());
+  const batonCodexCmd = existsSync(userBatonCodexCommandPath());
 
   let installedAt: string | null = null;
   let backupPath: string | null = null;
@@ -622,7 +666,7 @@ export function check(): CheckReport {
     } catch { /* ignore */ }
   }
 
-  const allPresent = statusPresent && statusCurrent && ups && pc && ss && batonCmd && dropCmd;
+  const allPresent = statusPresent && statusCurrent && ups && pc && ss && batonCmd && dropCmd && batonCodexCmd;
 
   return {
     version: VERSION,
@@ -632,6 +676,7 @@ export function check(): CheckReport {
     sessionStart: ss,
     batonCommand: batonCmd,
     dropCommand: dropCmd,
+    batonCodexCommand: batonCodexCmd,
     installedAt,
     backupPath,
     allPresent,
@@ -656,6 +701,7 @@ export function printCheckReport(r: CheckReport): void {
   lines.push(row("SessionStart", r.sessionStart));
   lines.push(row("/baton command", r.batonCommand));
   lines.push(row("/drop command", r.dropCommand));
+  lines.push(row("/baton-codex command", r.batonCodexCommand));
   if (r.installedAt) {
     lines.push("");
     lines.push(`  ${color.dim("installed")} ${color.dim(r.installedAt.slice(0, 10))}`);
