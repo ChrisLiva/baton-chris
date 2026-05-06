@@ -109,7 +109,11 @@ function loadSettings(settingsPath: string): Settings {
 function backup(settingsPath: string): string | null {
   if (!existsSync(settingsPath)) return null;
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const path = `${settingsPath}.baton-backup-${ts}`;
+  const basePath = `${settingsPath}.baton-backup-${ts}`;
+  let path = basePath;
+  for (let i = 1; existsSync(path); i++) {
+    path = `${basePath}-${i}`;
+  }
   copyFileSync(settingsPath, path);
   return path;
 }
@@ -245,11 +249,13 @@ function batonCodexCommandBody(): string {
   return [
     "---",
     "name: baton-codex",
-    "description: Run Codex CLI headlessly with the current BATON.md as context for a second opinion. Invoke when the user runs /baton-codex and wants Codex to review, critique, or propose an alternative grounded in the current baton.",
+    "description: Run Codex CLI as a same-session sidecar using the current BATON.md for context. Invoke when the user runs /baton-codex and wants Codex to review, critique, or propose an alternative without starting a fresh Claude Code session.",
     "disable-model-invocation: false",
     "---",
     "",
     "# /baton-codex — Codex sidecar",
+    "",
+    "This command continues in the current Claude Code session. It is not a handoff command, and it must not run /clear.",
     "",
     "1. Use AskUserQuestion with header \"Codex mode\" to ask the user which mode to run in. The three options are:",
     "   - \"review\" — Codex audits the plan for gaps and hidden assumptions",
@@ -262,7 +268,7 @@ function batonCodexCommandBody(): string {
     `${buildCommand("sidecar codex --mode")} <MODE>`,
     "```",
     "",
-    "3. After the command exits, relay whatever it printed verbatim, then stop. Do not write any files. Do not re-plan. Do not act on Codex's suggestions — that is the user's call.",
+    "3. After the command exits, relay whatever it printed verbatim into this same session, then stop. Do not write any files. Do not re-plan. Do not act on Codex's suggestions — that is the user's call.",
     "",
   ].join("\n");
 }
@@ -276,11 +282,13 @@ function batonGeminiCommandBody(): string {
   return [
     "---",
     "name: baton-gemini",
-    "description: Run Gemini CLI headlessly with the current BATON.md as context for a second opinion. Invoke when the user runs /baton-gemini and wants Gemini to review, critique, or propose an alternative grounded in the current baton.",
+    "description: Run Gemini CLI as a same-session sidecar using the current BATON.md for context. Invoke when the user runs /baton-gemini and wants Gemini to review, critique, or propose an alternative without starting a fresh Claude Code session.",
     "disable-model-invocation: false",
     "---",
     "",
     "# /baton-gemini — Gemini sidecar",
+    "",
+    "This command continues in the current Claude Code session. It is not a handoff command, and it must not run /clear.",
     "",
     "1. Use AskUserQuestion with header \"Gemini mode\" to ask the user which mode to run in. The three options are:",
     "   - \"review\" — Gemini audits the plan for gaps and hidden assumptions",
@@ -293,7 +301,7 @@ function batonGeminiCommandBody(): string {
     `${buildCommand("sidecar gemini --mode")} <MODE>`,
     "```",
     "",
-    "3. After the command exits, relay whatever it printed verbatim, then stop. Do not write any files. Do not re-plan. Do not act on Gemini's suggestions — that is the user's call.",
+    "3. After the command exits, relay whatever it printed verbatim into this same session, then stop. Do not write any files. Do not re-plan. Do not act on Gemini's suggestions — that is the user's call.",
     "",
   ].join("\n");
 }

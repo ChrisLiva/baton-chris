@@ -61,6 +61,8 @@ test("install writes the /baton-codex slash command pointing at sidecar codex", 
 
   const body = readFileSync(report.batonCodexCommandPath, "utf8");
   expect(body).toContain("name: baton-codex");
+  expect(body).toContain("same-session sidecar");
+  expect(body).toContain("It is not a handoff command");
   expect(body).toContain("AskUserQuestion");
   expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar codex --mode/);
 });
@@ -73,6 +75,8 @@ test("install writes the /baton-gemini slash command pointing at sidecar gemini"
 
   const body = readFileSync(report.batonGeminiCommandPath, "utf8");
   expect(body).toContain("name: baton-gemini");
+  expect(body).toContain("same-session sidecar");
+  expect(body).toContain("It is not a handoff command");
   expect(body).toContain("AskUserQuestion");
   expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar gemini --mode/);
 });

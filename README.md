@@ -43,13 +43,13 @@ After installing, restart Claude Code so the slash commands and statusline reloa
 
 ## Daily Flow
 
-Use `/baton` when you reach a natural stopping point. Claude writes `.claude/baton/BATON.md` with the current session state.
+Use `/baton` when you reach a natural stopping point and want a fresh Claude Code session to pick up from the current one. Claude writes `.claude/baton/BATON.md` with the current session state.
 
 Use `/clear` to start a clean session that automatically resumes from the baton. The `SessionStart` hook injects the baton into context, then archives it so the resume is one-shot.
 
 Use `/drop` before `/clear` when you want to discard the pending baton and start completely fresh.
 
-Use `/baton-codex` or `/baton-gemini` after writing a baton when you want a read-only second opinion. Each command asks whether the sidecar should run in `review`, `critique`, or `alternative` mode, then sends the current `BATON.md` through the same redaction pipeline used by the fallback writer. The Codex sidecar runs with `codex exec --sandbox read-only --ephemeral`; the Gemini sidecar runs headlessly with `--approval-mode plan`.
+Use `/baton-codex` or `/baton-gemini` after writing a baton when you want a read-only second opinion in the current Claude Code session. These commands do not start a new session and do not replace `/baton` + `/clear`; they run a sidecar model, relay its output back into the active conversation, and leave the user to decide what to do next. Each command asks whether the sidecar should run in `review`, `critique`, or `alternative` mode, then sends the current `BATON.md` through the same redaction pipeline used by the fallback writer. The Codex sidecar runs with `codex exec --sandbox read-only --ephemeral`; the Gemini sidecar runs headlessly with `--approval-mode plan`.
 
 Use `baton catch` when the original session or terminal is already gone but `.claude/baton/BATON.md` still exists. If installed from the renamed package binary, use `baton catch`.
 
