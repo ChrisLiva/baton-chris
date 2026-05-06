@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
+import { dirname } from "node:path";
 import { BATON_REL_PATH, userHomeDir } from "../config.ts";
 import { findBaton } from "../baton/find.ts";
 import {
@@ -17,7 +18,7 @@ export type SidecarHost = "codex" | "gemini";
 export interface HostAdapter {
   binaryName: string;
   installHint: string;
-  buildArgv(prompt: string): string[];
+  buildInvocation(prompt: string): { argv: string[]; stdin?: string };
 }
 
 export interface SidecarOptions {
@@ -55,11 +56,12 @@ export async function runSidecar(opts: SidecarOptions): Promise<number> {
     return 1;
   }
 
+  const batonRoot = dirname(dirname(dirname(batonPath)));
   const rawBody = readFileSync(batonPath, "utf8");
   const patterns = [
     ...DEFAULT_PATTERNS,
     ...loadUserPatterns(userHomeDir()),
-    ...loadProjectPatterns(opts.cwd),
+    ...loadProjectPatterns(batonRoot),
   ];
   const { body: redactedBody, hits } = redact(rawBody, patterns);
   if (hits.length > 0) {
@@ -77,17 +79,18 @@ export async function runSidecar(opts: SidecarOptions): Promise<number> {
     return 2;
   }
 
-  let argv: string[];
+  const prompt = composePrompt(opts.mode, redactedBody);
+  let invocation: { argv: string[]; stdin?: string };
   try {
-    argv = adapter.buildArgv(composePrompt(opts.mode, redactedBody));
+    invocation = adapter.buildInvocation(prompt);
   } catch (err: any) {
     process.stderr.write(`${err.message ?? String(err)}\n`);
     return 2;
   }
 
   if (opts.dryRun) {
-    process.stdout.write(JSON.stringify([adapter.binaryName, ...argv]) + "\n");
-    process.stderr.write(composePrompt(opts.mode, redactedBody) + "\n");
+    process.stdout.write(JSON.stringify([adapter.binaryName, ...invocation.argv]) + "\n");
+    process.stderr.write(prompt + "\n");
     return 0;
   }
 
@@ -98,7 +101,13 @@ export async function runSidecar(opts: SidecarOptions): Promise<number> {
     return 2;
   }
 
-  const child = spawn(adapter.binaryName, argv, { stdio: "inherit", cwd: opts.cwd });
+  const child = spawn(adapter.binaryName, invocation.argv, {
+    stdio: invocation.stdin === undefined ? "inherit" : ["pipe", "inherit", "inherit"],
+    cwd: opts.cwd,
+  });
+  if (invocation.stdin !== undefined) {
+    child.stdin?.end(invocation.stdin);
+  }
   return new Promise((res) => {
     child.on("exit", (code) => res(code ?? 0));
     child.on("error", (err) => {

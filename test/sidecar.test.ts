@@ -9,6 +9,7 @@ type SpawnMode = "exit" | "error";
 let spawnMode: SpawnMode = "exit";
 let spawnExitCode = 0;
 const spawnCalls: unknown[][] = [];
+const stdinWrites: string[] = [];
 let spawnSyncOnPath = true;
 const spawnSyncCalls: unknown[][] = [];
 const actualChildProcess = await import("node:child_process");
@@ -17,7 +18,14 @@ mock.module("node:child_process", () => ({
   ...actualChildProcess,
   spawn: (...args: unknown[]) => {
     spawnCalls.push(args);
-    const child = new EventEmitter();
+    const child = new EventEmitter() as EventEmitter & {
+      stdin: { end: (chunk?: unknown) => void };
+    };
+    child.stdin = {
+      end: (chunk?: unknown) => {
+        stdinWrites.push(chunk === undefined ? "" : String(chunk));
+      },
+    };
     queueMicrotask(() => {
       if (spawnMode === "error") child.emit("error", new Error("not found"));
       else child.emit("exit", spawnExitCode);
@@ -55,6 +63,7 @@ beforeEach(() => {
   spawnMode = "exit";
   spawnExitCode = 0;
   spawnCalls.length = 0;
+  stdinWrites.length = 0;
   spawnSyncOnPath = true;
   spawnSyncCalls.length = 0;
   stdoutCapture = "";
@@ -93,11 +102,10 @@ describe("runSidecar", () => {
     expect(argv).toContain("--ephemeral");
     expect(argv).toContain("-c");
     expect(argv[argv.indexOf("-c") + 1]).toBe("model_reasoning_effort=xhigh");
-    // Prompt is the last argv element.
-    const prompt = argv[argv.length - 1];
-    expect(prompt).toContain("reviewing another agent's working state");
-    expect(prompt).toContain("Ship the sidecar feature");
+    expect(argv[argv.length - 1]).toBe("-");
+    expect(stdoutCapture).not.toContain("Ship the sidecar feature");
     // And it's also echoed on stderr verbatim for human inspection.
+    expect(stderrCapture).toContain("reviewing another agent's working state");
     expect(stderrCapture).toContain("Ship the sidecar feature");
     expect(spawnCalls).toHaveLength(0);
   });
@@ -107,12 +115,15 @@ describe("runSidecar", () => {
 
     await runSidecar({ host: "codex", mode: "critique", cwd: tmp, dryRun: true });
     const critiqueArgv = JSON.parse(stdoutCapture.trim().split("\n")[0]!);
-    expect(critiqueArgv[critiqueArgv.length - 1]).toContain("arguing against");
+    expect(critiqueArgv[critiqueArgv.length - 1]).toBe("-");
+    expect(stderrCapture).toContain("arguing against");
 
     stdoutCapture = "";
+    stderrCapture = "";
     await runSidecar({ host: "codex", mode: "alternative", cwd: tmp, dryRun: true });
     const altArgv = JSON.parse(stdoutCapture.trim().split("\n")[0]!);
-    expect(altArgv[altArgv.length - 1]).toContain("substantively different approach");
+    expect(altArgv[altArgv.length - 1]).toBe("-");
+    expect(stderrCapture).toContain("substantively different approach");
   });
 
   test("missing BATON.md returns exit 1 with a pointer to /baton", async () => {
@@ -160,8 +171,8 @@ describe("runSidecar", () => {
     expect(stderrCapture).not.toContain(SECRET);
     expect(stdoutCapture).not.toContain(SECRET);
     const argv = JSON.parse(stdoutCapture.trim());
-    expect(argv[argv.length - 1]).not.toContain(SECRET);
-    expect(argv[argv.length - 1]).toContain("[redacted Anthropic API key]");
+    expect(argv[argv.length - 1]).toBe("-");
+    expect(stderrCapture).toContain("[redacted Anthropic API key]");
   });
 
   test("project-local .batonignore patterns are applied", async () => {
@@ -169,6 +180,19 @@ describe("runSidecar", () => {
     writeFileSync(join(tmp, ".batonignore"), "project secret:::project-secret-[A-Z0-9]+\n");
 
     const code = await runSidecar({ host: "codex", mode: "review", cwd: tmp, dryRun: true });
+
+    expect(code).toBe(0);
+    expect(stderrCapture).toContain("[redacted project secret]");
+    expect(stderrCapture).not.toContain("project-secret-XYZZY42");
+  });
+
+  test("project-root .batonignore patterns are applied when launched from a subdirectory", async () => {
+    const nested = join(tmp, "src", "nested");
+    mkdirSync(nested, { recursive: true });
+    writeBaton(tmp, "# Baton\n\nproject-secret-XYZZY42\n");
+    writeFileSync(join(tmp, ".batonignore"), "project secret:::project-secret-[A-Z0-9]+\n");
+
+    const code = await runSidecar({ host: "codex", mode: "review", cwd: nested, dryRun: true });
 
     expect(code).toBe(0);
     expect(stderrCapture).toContain("[redacted project secret]");
@@ -196,7 +220,7 @@ describe("runSidecar", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  test("with codex on PATH, spawns with stdio inherit and cwd set", async () => {
+  test("with codex on PATH, pipes prompt over stdin and cwd set", async () => {
     writeBaton(tmp);
     spawnExitCode = 7;
 
@@ -208,8 +232,14 @@ describe("runSidecar", () => {
     const argv = spawnCalls[0]?.[1] as string[];
     expect(argv[0]).toBe("exec");
     expect(argv).toContain("--ephemeral");
-    expect(argv[argv.length - 1]).toContain("substantively different approach");
-    expect(spawnCalls[0]?.[2]).toMatchObject({ stdio: "inherit", cwd: tmp });
+    expect(argv[argv.length - 1]).toBe("-");
+    expect(argv.join("\0")).not.toContain("substantively different approach");
+    expect(stdinWrites).toHaveLength(1);
+    expect(stdinWrites[0]).toContain("substantively different approach");
+    expect(spawnCalls[0]?.[2]).toMatchObject({
+      stdio: ["pipe", "inherit", "inherit"],
+      cwd: tmp,
+    });
   });
 
   test("baton body is unmodified on disk after a sidecar run", async () => {
