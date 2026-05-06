@@ -72,6 +72,10 @@ export function userBatonCodexCommandPath(): string {
   return join(userCommandsDir(), "baton-codex.md");
 }
 
+export function userBatonGeminiCommandPath(): string {
+  return join(userCommandsDir(), "baton-gemini.md");
+}
+
 export function userSkillsDir(): string {
   return join(userClaudeDir(), "skills");
 }

@@ -8,6 +8,7 @@ import {
   installManifestPath,
   userBatonCodexCommandPath,
   userBatonCommandPath,
+  userBatonGeminiCommandPath,
   userBatonSkillDir,
   userBatonSkillPath,
   userClaudeDir,
@@ -83,10 +84,12 @@ export interface InstallReport {
   wroteBatonCommand: boolean;
   wroteDropCommand: boolean;
   wroteBatonCodexCommand: boolean;
+  wroteBatonGeminiCommand: boolean;
   settingsPath: string;
   batonCommandPath: string;
   dropCommandPath: string;
   batonCodexCommandPath: string;
+  batonGeminiCommandPath: string;
   migratedCommands: string[];
   migratedSkills: string[];
   templateSource: "bundled" | "override" | "extended";
@@ -269,6 +272,37 @@ function writeBatonCodexCommand(commandsDir: string, cmdPath: string): boolean {
   return writeFileIfChanged(cmdPath, batonCodexCommandBody());
 }
 
+function batonGeminiCommandBody(): string {
+  return [
+    "---",
+    "name: baton-gemini",
+    "description: Run Gemini CLI headlessly with the current BATON.md as context for a second opinion. Invoke when the user runs /baton-gemini and wants Gemini to review, critique, or propose an alternative grounded in the current baton.",
+    "disable-model-invocation: false",
+    "---",
+    "",
+    "# /baton-gemini — Gemini sidecar",
+    "",
+    "1. Use AskUserQuestion with header \"Gemini mode\" to ask the user which mode to run in. The three options are:",
+    "   - \"review\" — Gemini audits the plan for gaps and hidden assumptions",
+    "   - \"critique\" — Gemini argues against the approach",
+    "   - \"alternative\" — Gemini proposes a different approach",
+    "",
+    "2. Run this exact command using the Bash tool, and nothing else, replacing `<MODE>` with the user's pick:",
+    "",
+    "```bash",
+    `${buildCommand("sidecar gemini --mode")} <MODE>`,
+    "```",
+    "",
+    "3. After the command exits, relay whatever it printed verbatim, then stop. Do not write any files. Do not re-plan. Do not act on Gemini's suggestions — that is the user's call.",
+    "",
+  ].join("\n");
+}
+
+function writeBatonGeminiCommand(commandsDir: string, cmdPath: string): boolean {
+  mkdirSync(commandsDir, { recursive: true });
+  return writeFileIfChanged(cmdPath, batonGeminiCommandBody());
+}
+
 function startsWithFrontmatter(path: string, expectedName: string): boolean {
   try {
     const buf = readFileSync(path, "utf8").slice(0, 80).replace(/\r\n/g, "\n");
@@ -432,6 +466,7 @@ export function uninstall(): UninstallReport {
   removeIfBatonOwned(userBatonCommandPath(), "baton", removedFiles, skippedFiles);
   removeIfBatonOwned(userDropCommandPath(), "drop", removedFiles, skippedFiles);
   removeIfBatonOwned(userBatonCodexCommandPath(), "baton-codex", removedFiles, skippedFiles);
+  removeIfBatonOwned(userBatonGeminiCommandPath(), "baton-gemini", removedFiles, skippedFiles);
 
   // Skill directory: gated two ways. SKILL.md must still be baton-owned, AND
   // the directory must contain nothing unexpected. If either check fails we
@@ -515,6 +550,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const batonCmdPath = userBatonCommandPath();
   const dropCmdPath = userDropCommandPath();
   const batonCodexCmdPath = userBatonCodexCommandPath();
+  const batonGeminiCmdPath = userBatonGeminiCommandPath();
   const skillsDir = userSkillsDir();
 
   mkdirSync(claudeDir, { recursive: true });
@@ -541,6 +577,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const wroteBatonCommand = writeBatonCommand(commandsDir, batonCmdPath, templateBody);
   const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
   const wroteBatonCodexCommand = writeBatonCodexCommand(commandsDir, batonCodexCmdPath);
+  const wroteBatonGeminiCommand = writeBatonGeminiCommand(commandsDir, batonGeminiCmdPath);
 
   writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
 
@@ -556,10 +593,12 @@ export function install(opts: InstallOptions = {}): InstallReport {
     wroteBatonCommand,
     wroteDropCommand,
     wroteBatonCodexCommand,
+    wroteBatonGeminiCommand,
     settingsPath,
     batonCommandPath: batonCmdPath,
     dropCommandPath: dropCmdPath,
     batonCodexCommandPath: batonCodexCmdPath,
+    batonGeminiCommandPath: batonGeminiCmdPath,
     migratedCommands,
     migratedSkills,
     templateSource: templateResult.source,
@@ -574,7 +613,8 @@ export function printReport(r: InstallReport): void {
   // --postinstall: silent if nothing changed, one-liner if first install.
   if (r.postinstall) {
     const anyNew = r.wroteStatusline || r.wroteUserPromptSubmit || r.wrotePreCompact ||
-      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand || r.wroteBatonCodexCommand;
+      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand ||
+      r.wroteBatonCodexCommand || r.wroteBatonGeminiCommand;
     if (!anyNew) return;
     process.stdout.write(
       color.green("✓") + ` baton v${VERSION} installed — restart Claude Code to activate.\n`,
@@ -600,6 +640,7 @@ export function printReport(r: InstallReport): void {
   lines.push(`  ${tick(r.wroteBatonCommand)}  /baton command${templateSuffix}`);
   lines.push(`  ${tick(r.wroteDropCommand)}  /drop command`);
   lines.push(`  ${tick(r.wroteBatonCodexCommand)}  /baton-codex command`);
+  lines.push(`  ${tick(r.wroteBatonGeminiCommand)}  /baton-gemini command`);
 
   if (r.migratedCommands.length > 0 || r.migratedSkills.length > 0) {
     lines.push("");
@@ -627,6 +668,7 @@ export interface CheckReport {
   batonCommand: boolean;
   dropCommand: boolean;
   batonCodexCommand: boolean;
+  batonGeminiCommand: boolean;
   installedAt: string | null;
   backupPath: string | null;
   allPresent: boolean;
@@ -654,6 +696,7 @@ export function check(): CheckReport {
   const batonCmd = existsSync(userBatonCommandPath());
   const dropCmd = existsSync(userDropCommandPath());
   const batonCodexCmd = existsSync(userBatonCodexCommandPath());
+  const batonGeminiCmd = existsSync(userBatonGeminiCommandPath());
 
   let installedAt: string | null = null;
   let backupPath: string | null = null;
@@ -666,7 +709,8 @@ export function check(): CheckReport {
     } catch { /* ignore */ }
   }
 
-  const allPresent = statusPresent && statusCurrent && ups && pc && ss && batonCmd && dropCmd && batonCodexCmd;
+  const allPresent = statusPresent && statusCurrent && ups && pc && ss &&
+    batonCmd && dropCmd && batonCodexCmd && batonGeminiCmd;
 
   return {
     version: VERSION,
@@ -677,6 +721,7 @@ export function check(): CheckReport {
     batonCommand: batonCmd,
     dropCommand: dropCmd,
     batonCodexCommand: batonCodexCmd,
+    batonGeminiCommand: batonGeminiCmd,
     installedAt,
     backupPath,
     allPresent,
@@ -702,6 +747,7 @@ export function printCheckReport(r: CheckReport): void {
   lines.push(row("/baton command", r.batonCommand));
   lines.push(row("/drop command", r.dropCommand));
   lines.push(row("/baton-codex command", r.batonCodexCommand));
+  lines.push(row("/baton-gemini command", r.batonGeminiCommand));
   if (r.installedAt) {
     lines.push("");
     lines.push(`  ${color.dim("installed")} ${color.dim(r.installedAt.slice(0, 10))}`);

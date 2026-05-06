@@ -65,6 +65,18 @@ test("install writes the /baton-codex slash command pointing at sidecar codex", 
   expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar codex --mode/);
 });
 
+test("install writes the /baton-gemini slash command pointing at sidecar gemini", () => {
+  const report = install();
+
+  expect(report.wroteBatonGeminiCommand).toBe(true);
+  expect(report.batonGeminiCommandPath).toMatch(/baton-gemini\.md$/);
+
+  const body = readFileSync(report.batonGeminiCommandPath, "utf8");
+  expect(body).toContain("name: baton-gemini");
+  expect(body).toContain("AskUserQuestion");
+  expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar gemini --mode/);
+});
+
 test("source-mode hook commands are self-locating bun invocations", () => {
   install();
 
