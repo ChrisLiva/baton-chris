@@ -64,6 +64,10 @@ test("install writes the /baton-codex slash command pointing at sidecar codex", 
   expect(body).toContain("same-session sidecar");
   expect(body).toContain("It is not a handoff command");
   expect(body).toContain("AskUserQuestion");
+  expect(body).toContain("multiSelect");
+  expect(body).toContain("If the user's message already names a mode");
+  expect(body).toContain("do not repeat it");
+  expect(body).not.toContain("relay whatever it printed verbatim");
   expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar codex --mode/);
 });
 
@@ -78,6 +82,10 @@ test("install writes the /baton-gemini slash command pointing at sidecar gemini"
   expect(body).toContain("same-session sidecar");
   expect(body).toContain("It is not a handoff command");
   expect(body).toContain("AskUserQuestion");
+  expect(body).toContain("multiSelect");
+  expect(body).toContain("If the user's message already names a mode");
+  expect(body).toContain("do not repeat it");
+  expect(body).not.toContain("relay whatever it printed verbatim");
   expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar gemini --mode/);
 });
 
