@@ -16,5 +16,5 @@ const MODE_PREAMBLES: Record<SidecarMode, string> = {
 };
 
 export function composePrompt(mode: SidecarMode, batonBody: string): string {
-  return `${MODE_PREAMBLES[mode]}\n\n---\n\n${batonBody}`;
+  return `${MODE_PREAMBLES[mode]} Do not modify files, run shell commands, approve or exit plan mode, or continue into implementation.\n\n---\n\n${batonBody}`;
 }

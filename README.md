@@ -37,10 +37,9 @@ What gets installed:
 
 - a statusline command
 - `UserPromptSubmit`, `PreCompact`, and `SessionStart` hooks
-- `/baton` and `/drop` slash commands
-- the baton skill at `~/.claude/skills/baton/SKILL.md`
+- `/baton`, `/drop`, `/baton-codex`, and `/baton-gemini` slash commands
 
-After installing, restart Claude Code. If the installer warns that `~/.claude/skills/` was newly created, a full restart is required before the `/baton` skill is available.
+After installing, restart Claude Code so the slash commands and statusline reload.
 
 ## Daily Flow
 
@@ -50,11 +49,15 @@ Use `/clear` to start a clean session that automatically resumes from the baton.
 
 Use `/drop` before `/clear` when you want to discard the pending baton and start completely fresh.
 
+Use `/baton-codex` or `/baton-gemini` after writing a baton when you want a read-only second opinion. Each command asks whether the sidecar should run in `review`, `critique`, or `alternative` mode, then sends the current `BATON.md` through the same redaction pipeline used by the fallback writer. The Codex sidecar runs with `codex exec --sandbox read-only --ephemeral`; the Gemini sidecar runs headlessly with `--approval-mode plan`.
+
 Use `baton catch` when the original session or terminal is already gone but `.claude/baton/BATON.md` still exists. If installed from the renamed package binary, use `baton catch`.
 
 ```bash
 baton catch
 baton catch --dry-run
+baton sidecar codex --mode review --dry-run
+baton sidecar gemini --mode review --dry-run
 ```
 
 ## Statusline

@@ -199,13 +199,78 @@ describe("runSidecar", () => {
     expect(stderrCapture).not.toContain("project-secret-XYZZY42");
   });
 
-  test("gemini host exits 2 with not-yet-supported", async () => {
+  test("dry-run for gemini review prints argv on stdout and prompt on stderr", async () => {
     writeBaton(tmp);
     const code = await runSidecar({ host: "gemini", mode: "review", cwd: tmp, dryRun: true });
 
-    expect(code).toBe(2);
-    expect(stderrCapture).toContain("not yet supported");
+    expect(code).toBe(0);
+    const argv = JSON.parse(stdoutCapture.trim());
+    expect(argv[0]).toBe("gemini");
+    expect(argv).toContain("--prompt");
+    expect(argv).toContain("--model");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("pro");
+    expect(argv).toContain("--approval-mode");
+    expect(argv[argv.indexOf("--approval-mode") + 1]).toBe("plan");
+    expect(argv).not.toContain("--skip-trust");
+    const prompt = argv[argv.indexOf("--prompt") + 1] as string;
+    expect(prompt).toContain("reviewing another agent's working state");
+    expect(prompt).toContain("Do not modify files");
+    expect(prompt).toContain("Ship the sidecar feature");
+    expect(stderrCapture).toBe(`${prompt}\n`);
     expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("missing gemini binary on PATH exits 2 with install hint", async () => {
+    writeBaton(tmp);
+    spawnSyncOnPath = false;
+
+    const code = await runSidecar({ host: "gemini", mode: "review", cwd: tmp });
+
+    expect(code).toBe(2);
+    expect(stderrCapture).toContain("'gemini' not found on PATH");
+    expect(stderrCapture).toContain("google-gemini/gemini-cli");
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("with gemini on PATH, passes prompt in argv and cwd set", async () => {
+    writeBaton(tmp);
+    spawnExitCode = 9;
+
+    const code = await runSidecar({ host: "gemini", mode: "critique", cwd: tmp });
+
+    expect(code).toBe(9);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]?.[0]).toBe("gemini");
+    const argv = spawnCalls[0]?.[1] as string[];
+    expect(argv[0]).toBe("--prompt");
+    expect(argv[1]).toContain("arguing against");
+    expect(argv).toContain("--model");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("pro");
+    expect(argv).toContain("--approval-mode");
+    expect(argv[argv.indexOf("--approval-mode") + 1]).toBe("plan");
+    expect(argv).not.toContain("--skip-trust");
+    expect(stdinWrites).toHaveLength(0);
+    expect(spawnCalls[0]?.[2]).toMatchObject({
+      stdio: "inherit",
+      cwd: tmp,
+    });
+  });
+
+  test("redacts secrets in gemini argv", async () => {
+    const SECRET = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890-abcdefg";
+    writeBaton(tmp, `# Baton\n\nMy key is ${SECRET}\n`);
+
+    const code = await runSidecar({ host: "gemini", mode: "review", cwd: tmp, dryRun: true });
+
+    expect(code).toBe(0);
+    expect(stderrCapture).toContain("redacted 1 secret");
+    expect(stdoutCapture).not.toContain(SECRET);
+    expect(stderrCapture).not.toContain(SECRET);
+    expect(stdoutCapture).toContain("[redacted Anthropic API key]");
+    const argv = JSON.parse(stdoutCapture.trim());
+    const prompt = argv[argv.indexOf("--prompt") + 1] as string;
+    expect(prompt).toContain("[redacted Anthropic API key]");
+    expect(prompt).not.toContain(SECRET);
   });
 
   test("missing codex binary on PATH exits 2 with install hint", async () => {
