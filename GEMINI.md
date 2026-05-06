@@ -18,7 +18,7 @@ This file provides guidance to Gemini CLI when working with the `baton` codebase
 ```bash
 bun install          # Install dependencies
 bun test             # Run all tests using Bun's test runner
-bun test <path>      # Run a specific test file
+bun test test/tokens.test.ts   # Run a specific test file
 bun run build        # Bundle the project to dist/cli.js (Node-portable)
 bun run typecheck    # Run TypeScript compiler for type checking (tsc --noEmit)
 bun run src/cli.ts install     # Install from source into ~/.claude/
@@ -36,32 +36,60 @@ bun run src/cli.ts sidecar gemini --mode review --dry-run
 
 The project is structured into modular components:
 
-- **`src/cli.ts`**: The main entry point. Dispatches subcommands for the statusline, hooks, installation, and baton lifecycle management.
+- **`src/cli.ts`**: The main entry point. Dispatches subcommands (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `catch`, `drop`, `reconstruct`, `list`, `show`, `prune`, `recall`, `sidecar`). Also handles `--version`/`-v`.
+- **`src/config.ts`**: Shared constants, path helpers (`userClaudeDir()`, `userSettingsPath()`), threshold values, `VERSION`, and the self-locating `buildCommand()` that generates hook commands pointing at the current install location (source-mode uses `bun run`, published uses `node`).
 - **`src/hooks/`**: Implements Claude Code hook handlers:
-    - `session-start.ts`: Injects `BATON.md` content on session start.
-    - `user-prompt-submit.ts`: Nudges the user/model to snapshot when context thresholds are reached.
-    - `pre-compact.ts`: Intercepts auto-compaction and writes a fallback baton if needed.
-- **`src/statusline/`**: Logic for rendering the compact Claude Code status bar, including token usage gauges and session metadata.
-- **`src/baton/`**: Core logic for baton creation, archiving, redaction, and template loading.
-- **`src/install/`**: Idempotent installation logic that patches `~/.claude/settings.json`.
-- **`src/sidecar/`**: Headless second-opinion runners for Codex and Gemini. Hosts share `run.ts`, mode prompts live in `prompts.ts`, and host-specific argv construction lives in `codex.ts` and `gemini.ts`.
-- **`src/transcript/`**: Utilities for parsing Claude Code's JSONL transcript files.
+    - `session-start.ts`: On `/clear` or resume, reads `BATON.md`, injects it as `additionalContext`, then archives it so the resume is one-shot.
+    - `user-prompt-submit.ts`: Nudges the user/model to snapshot when context crosses soft/hard thresholds. At the hard threshold, injects the full baton protocol. Also fires a time-based nudge when session age ≥ 5 hours with ≥ 30k tokens in context, at most once per session.
+    - `pre-compact.ts`: Intercepts auto-compaction. If a fresh baton exists, blocks. Otherwise writes a fallback baton from the transcript, then blocks. Never returns `"allow"`.
+- **`src/statusline/`**: Logic for rendering the compact Claude Code status bar. `render.ts` orchestrates widgets; `widgets.ts` has individual renderers (model, branch, baton badge, rate limit, duration, cost); `bar.ts` draws the context gauge; `color.ts` wraps ANSI codes.
+- **`src/baton/`**: Core lifecycle modules:
+    - `archive.ts`: Move a baton to a timestamped archive.
+    - `archive-library.ts`: List, show, prune, and recall archived batons (`list`, `show`, `prune`, `recall` subcommands).
+    - `catch.ts`: CLI resume from the nearest `BATON.md`.
+    - `drop.ts`: Discard the nearest `BATON.md`.
+    - `fallback-writer.ts`: Deterministic baton generation from a transcript when Claude has not written one.
+    - `find.ts`: Walk up the directory tree to locate `BATON.md`.
+    - `reconstruct.ts`: Rebuild a baton from a transcript JSONL file (`reconstruct` subcommand).
+    - `redact.ts`: Strip secrets from baton content before it leaves the machine (used by sidecars and fallback writer). Loads patterns from user home and project root.
+    - `state.ts`: Per-session state file helpers (token level, time nudge flag).
+    - `template-loader.ts`: Reads the `/baton` command template (`src/baton/template.md`).
+- **`src/install/settings-patch.ts`**: Idempotent installation that patches `~/.claude/settings.json`: merges hooks, sets statusline, writes skill + command files, prunes stale entries, migrates old artifacts. Backs up settings before modifying. Also exports `check()` and `uninstall()`.
+- **`src/sidecar/`**: Headless second-opinion runners for Codex and Gemini:
+    - `run.ts`: Shared orchestration — finds `BATON.md`, redacts secrets, composes the prompt, checks that the binary is on PATH, and spawns the child process.
+    - `prompts.ts`: Defines the three modes (`review`, `critique`, `alternative`) and their preambles. `composePrompt()` always appends a guard against file writes or shell execution.
+    - `gemini.ts`: Gemini-specific `HostAdapter` — invokes `gemini --prompt <prompt> --model pro --approval-mode plan`.
+    - `codex.ts`: Codex-specific `HostAdapter` — invokes `codex exec` with `--sandbox read-only --ephemeral`, passing the prompt on stdin.
+- **`src/transcript/`**: Utilities for parsing Claude Code's JSONL transcript files (`read.ts`, `tokens.ts`).
+
+### Sidecar command flow (installed into Claude Code)
+
+The `/baton-gemini` and `/baton-codex` commands installed into `~/.claude/` follow this protocol:
+
+1. **Mode shortcut.** If the user's message already names a mode (`review`, `critique`, or `alternative`), use it directly — skip the question.
+2. **Ask for the mode.** If no mode was named, call `AskUserQuestion` with a structured options list (single-select: review / critique / alternative).
+3. **Run the sidecar.** Execute `baton sidecar gemini --mode <MODE>` (or `codex`) via the Bash tool. Nothing else.
+4. **Handle the result.** On non-zero exit, surface the stderr message (e.g., `'gemini' not found on PATH` with the install hint). On success, do not repeat the output — the user already saw it in the bash block. Do not act on the sidecar's suggestions without explicit user direction.
 
 ## Development Conventions
 
 ### Coding Style & Patterns
-- **Non-Interactive CLI**: All subcommands are designed to be non-interactive, reading from `stdin` or CLI arguments.
-- **Output**: Prefer `process.stdout.write` and `process.stderr.write` over `console.log` for precise control over output (e.g., for the statusline).
-- **Self-Locating Commands**: The `buildCommand()` utility in `src/config.ts` ensures hooks use absolute paths to remain functional regardless of where the CLI was invoked.
-- **Idempotency**: Installation and patching logic must be idempotent, allowing safe repeated execution.
-- **Sidecars are read-only**: Codex uses `--sandbox read-only --ephemeral`; Gemini uses `--approval-mode plan`. Do not add write-capable sidecar behavior without explicit product intent and tests.
+- **Non-Interactive CLI**: All subcommands read from `stdin` or CLI arguments; none are interactive.
+- **Output**: Prefer `process.stdout.write` and `process.stderr.write` over `console.log` for precise control.
+- **Self-Locating Commands**: `buildCommand()` in `src/config.ts` ensures hooks use absolute paths regardless of invocation context.
+- **Idempotency**: Installation and patching logic must be safe to run repeatedly.
+- **Sidecars are read-only**: Codex uses `--sandbox read-only --ephemeral`; Gemini uses `--approval-mode plan`. The prompt also explicitly instructs the sidecar not to modify files, run shell commands, or exit plan mode. Do not add write-capable sidecar behavior without explicit product intent and tests.
+- **Redaction before external transmission**: `redact()` is called on baton content before it is passed to any sidecar. Never bypass this step.
 
 ### Testing Practices
-- **Framework**: Use Bun's built-in test runner (`bun test`).
-- **File-System Focused**: Tests typically interact with the real file system using temporary directories (`mkdtempSync`) rather than extensive mocking.
-- **Fixtures**: Use `test/fixtures.ts` to generate synthetic Claude Code transcripts for testing parsing and token counting logic.
+- **Framework**: Bun's built-in test runner (`bun test`).
+- **File-System Focused**: Tests write real files to temp directories (`mkdtempSync`) rather than using mocks.
+- **Fixtures**: `test/fixtures.ts` generates synthetic Claude Code transcripts for testing parsing and token counting logic.
+- **Helpers**: `test/helpers/` contains shared test utilities.
 
 ### Design Decisions
-- **Token Counting**: Only the most recent main-chain assistant message's `usage` field is used to determine current context size to avoid double-counting cached tokens.
-- **PreCompact Blocking**: The `PreCompact` hook always returns `{ decision: "block" }` to prevent Claude Code's native compaction, instead relying on the baton for context preservation.
-- **Redaction**: A fallback redaction step is applied to auto-generated batons to prevent accidental leakage of secrets (API keys, tokens, etc.).
+- **Token Counting**: Only the most recent main-chain assistant message's `usage` field is used. Summing all entries would double-count cached tokens.
+- **PreCompact Blocking**: The `PreCompact` hook always returns `{ decision: "block" }` — either because a fresh baton exists, or after writing a fallback from the transcript.
+- **Freshness window**: `BATON_FRESH_MS` (default 10 min, configurable via env) gates whether `SessionStart` injects and whether `PreCompact` considers an existing baton fresh enough.
+- **State normalization**: The statusline writes `{ maxTokens }` to the per-session state file without a `level` field. `readState()` in `user-prompt-submit.ts` normalizes missing or invalid `level` values to `"none"` — without this, the soft nudge silently skips and users jump straight to the hard-stop.
+- **Redaction**: Applied to baton content before any sidecar invocation and to auto-generated fallback batons, to prevent accidental leakage of secrets (API keys, tokens, etc.).
