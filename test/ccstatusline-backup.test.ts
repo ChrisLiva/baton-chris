@@ -177,17 +177,44 @@ test("XDG_CONFIG_HOME override is honored", () => {
   }
 });
 
+function spawnCli(args: string[], homeDir: string): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error: Error | undefined;
+} {
+  const cliPath = join(import.meta.dir, "..", "src", "cli.ts");
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  env.HOME = homeDir;
+  env.USERPROFILE = homeDir;
+  delete env.XDG_CONFIG_HOME;
+  const result = spawnSync(process.execPath, ["run", cliPath, ...args], {
+    encoding: "utf8",
+    env,
+  });
+  const toStr = (v: string | Buffer | null | undefined): string => {
+    if (v == null) return "";
+    return typeof v === "string" ? v : v.toString("utf8");
+  };
+  return {
+    status: result.status,
+    stdout: toStr(result.stdout),
+    stderr: toStr(result.stderr),
+    error: result.error,
+  };
+}
+
 test("CLI: ccstatusline-backup end-to-end", () => {
   const homeDir = join(TEST_HOME, "cli-ccs-backup");
   rmSync(homeDir, { recursive: true, force: true });
   mkdirSync(join(homeDir, ".config", "ccstatusline"), { recursive: true });
   writeFileSync(join(homeDir, ".config", "ccstatusline", "settings.json"), '{"v":"cli"}', "utf8");
 
-  const cliPath = join(import.meta.dir, "..", "src", "cli.ts");
-  const result = spawnSync("bun", ["run", cliPath, "ccstatusline-backup"], {
-    encoding: "utf8",
-    env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir, XDG_CONFIG_HOME: "" },
-  });
+  const result = spawnCli(["ccstatusline-backup"], homeDir);
+  expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("ccstatusline backed up");
   rmSync(homeDir, { recursive: true, force: true });
@@ -198,11 +225,8 @@ test("CLI: ccstatusline-restore --list reports empty when no backups exist", () 
   rmSync(homeDir, { recursive: true, force: true });
   mkdirSync(homeDir, { recursive: true });
 
-  const cliPath = join(import.meta.dir, "..", "src", "cli.ts");
-  const result = spawnSync("bun", ["run", cliPath, "ccstatusline-restore", "--list"], {
-    encoding: "utf8",
-    env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir, XDG_CONFIG_HOME: "" },
-  });
+  const result = spawnCli(["ccstatusline-restore", "--list"], homeDir);
+  expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("No ccstatusline backups found");
   rmSync(homeDir, { recursive: true, force: true });
@@ -213,11 +237,8 @@ test("CLI: ccstatusline-restore fails clearly when there is nothing to restore",
   rmSync(homeDir, { recursive: true, force: true });
   mkdirSync(homeDir, { recursive: true });
 
-  const cliPath = join(import.meta.dir, "..", "src", "cli.ts");
-  const result = spawnSync("bun", ["run", cliPath, "ccstatusline-restore"], {
-    encoding: "utf8",
-    env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir, XDG_CONFIG_HOME: "" },
-  });
+  const result = spawnCli(["ccstatusline-restore"], homeDir);
+  expect(result.error).toBeUndefined();
   expect(result.status).toBe(1);
   expect(result.stderr).toContain("No ccstatusline backups found");
   rmSync(homeDir, { recursive: true, force: true });
