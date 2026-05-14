@@ -1,7 +1,6 @@
 import { expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { TEST_HOME } from "./helpers/test-home.ts";
 
 const actualConfig = await import("../src/config.ts");
@@ -181,7 +180,6 @@ function spawnCli(args: string[], homeDir: string): {
   status: number | null;
   stdout: string;
   stderr: string;
-  error: Error | undefined;
 } {
   const cliPath = join(import.meta.dir, "..", "src", "cli.ts");
   const env: Record<string, string> = {};
@@ -191,19 +189,19 @@ function spawnCli(args: string[], homeDir: string): {
   env.HOME = homeDir;
   env.USERPROFILE = homeDir;
   delete env.XDG_CONFIG_HOME;
-  const result = spawnSync(process.execPath, ["run", cliPath, ...args], {
-    encoding: "utf8",
+  // Use Bun.spawnSync directly — node:child_process.spawnSync with a custom
+  // `env` is silently a no-op on some Linux runner configurations (returns
+  // status 0 and empty stdio without actually running the child).
+  const result = Bun.spawnSync({
+    cmd: [process.execPath, "run", cliPath, ...args],
     env,
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const toStr = (v: string | Buffer | null | undefined): string => {
-    if (v == null) return "";
-    return typeof v === "string" ? v : v.toString("utf8");
-  };
   return {
-    status: result.status,
-    stdout: toStr(result.stdout),
-    stderr: toStr(result.stderr),
-    error: result.error,
+    status: result.exitCode,
+    stdout: new TextDecoder().decode(result.stdout),
+    stderr: new TextDecoder().decode(result.stderr),
   };
 }
 
@@ -214,7 +212,6 @@ test("CLI: ccstatusline-backup end-to-end", () => {
   writeFileSync(join(homeDir, ".config", "ccstatusline", "settings.json"), '{"v":"cli"}', "utf8");
 
   const result = spawnCli(["ccstatusline-backup"], homeDir);
-  expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("ccstatusline backed up");
   rmSync(homeDir, { recursive: true, force: true });
@@ -226,7 +223,6 @@ test("CLI: ccstatusline-restore --list reports empty when no backups exist", () 
   mkdirSync(homeDir, { recursive: true });
 
   const result = spawnCli(["ccstatusline-restore", "--list"], homeDir);
-  expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("No ccstatusline backups found");
   rmSync(homeDir, { recursive: true, force: true });
@@ -238,7 +234,6 @@ test("CLI: ccstatusline-restore fails clearly when there is nothing to restore",
   mkdirSync(homeDir, { recursive: true });
 
   const result = spawnCli(["ccstatusline-restore"], homeDir);
-  expect(result.error).toBeUndefined();
   expect(result.status).toBe(1);
   expect(result.stderr).toContain("No ccstatusline backups found");
   rmSync(homeDir, { recursive: true, force: true });
