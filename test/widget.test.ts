@@ -97,3 +97,75 @@ describe("runWidget", () => {
     expect(state.maxTokens).toBe(200000);
   });
 });
+
+describe("renderBadgeWidget", () => {
+  let tmpHome: string;
+  let tmpCwd: string;
+  let batonPath: string;
+  let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
+
+  beforeEach(() => {
+    tmpHome = mkdtempSync(join(tmpdir(), "baton-widget-badge-home-"));
+    tmpCwd = mkdtempSync(join(tmpdir(), "baton-widget-badge-cwd-"));
+    batonPath = join(tmpCwd, ".claude/baton/BATON.md");
+    mkdirSync(join(tmpCwd, ".claude/baton"), { recursive: true });
+    originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
+  });
+  afterEach(() => {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
+    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  test("fresh baton emits goal", async () => {
+    writeFileSync(batonPath, "# T\n\n## Current Goal\nDo the thing\n");
+    const { renderBadgeWidget } = await import("../src/widget/badge.ts");
+    const out = renderBadgeWidget({ cwd: tmpCwd }, { color: true, maxWidth: 40 });
+    expect(out).toMatch(/BATON.*Do the thing/);
+  });
+
+  test("idle emits empty string", async () => {
+    const { renderBadgeWidget } = await import("../src/widget/badge.ts");
+    expect(renderBadgeWidget({ cwd: tmpCwd }, { color: false, maxWidth: undefined })).toBe("");
+  });
+
+  test("hard nudge emits ⚠ HARD", async () => {
+    const sessionId = `t-${process.pid}-${Date.now()}`;
+    mkdirSync(batonStateDir(), { recursive: true });
+    writeFileSync(join(batonStateDir(), `${sessionId}.json`), JSON.stringify({ level: "hard" }));
+    const { renderBadgeWidget } = await import("../src/widget/badge.ts");
+    const out = renderBadgeWidget({ session_id: sessionId }, { color: false, maxWidth: undefined });
+    expect(out).toContain("⚠ HARD");
+  });
+
+  test("soft nudge emits ⚠ soft", async () => {
+    const sessionId = `t-${process.pid}-${Date.now()}-2`;
+    mkdirSync(batonStateDir(), { recursive: true });
+    writeFileSync(join(batonStateDir(), `${sessionId}.json`), JSON.stringify({ level: "soft" }));
+    const { renderBadgeWidget } = await import("../src/widget/badge.ts");
+    const out = renderBadgeWidget({ session_id: sessionId }, { color: false, maxWidth: undefined });
+    expect(out).toContain("⚠ soft");
+  });
+
+  test("--color absent strips ANSI", async () => {
+    writeFileSync(batonPath, "# T\n\n## Current Goal\nFoo\n");
+    const { renderBadgeWidget } = await import("../src/widget/badge.ts");
+    const out = renderBadgeWidget({ cwd: tmpCwd }, { color: false, maxWidth: 40 });
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  test("--max-width truncates", async () => {
+    writeFileSync(batonPath, "# T\n\n## Current Goal\nA very long goal that should be cut\n");
+    const { stripAnsi } = await import("../src/statusline/color.ts");
+    const { renderBadgeWidget } = await import("../src/widget/badge.ts");
+    const out = renderBadgeWidget({ cwd: tmpCwd }, { color: true, maxWidth: 12 });
+    expect(stripAnsi(out).length).toBeLessThanOrEqual(12);
+  });
+});
