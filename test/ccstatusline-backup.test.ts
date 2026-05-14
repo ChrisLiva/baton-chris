@@ -1,5 +1,5 @@
 import { expect, test, beforeEach, afterEach, mock } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_HOME } from "./helpers/test-home.ts";
 
@@ -176,11 +176,21 @@ test("XDG_CONFIG_HOME override is honored", () => {
   }
 });
 
-function spawnCli(args: string[], homeDir: string): {
+type SpawnResult = {
   status: number | null;
+  signal: string | null;
   stdout: string;
   stderr: string;
-} {
+};
+
+function spawnCli(args: string[], homeDir: string): SpawnResult {
+  // Spawn the CLI under the same `bun` that runs this test suite. We hardcode
+  // the binary name (rather than `process.execPath`) so a future Node-based
+  // wrapper would fail loudly with "command not found" instead of confusingly
+  // running `node run cli.ts`. node:child_process.spawnSync with a custom
+  // `env` is also silently a no-op on some Linux runner configurations
+  // (returns status 0 and empty stdio without actually running the child).
+  if (!process.versions.bun) throw new Error("spawnCli requires the bun runtime");
   const cliPath = join(import.meta.dir, "..", "src", "cli.ts");
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
@@ -189,52 +199,123 @@ function spawnCli(args: string[], homeDir: string): {
   env.HOME = homeDir;
   env.USERPROFILE = homeDir;
   delete env.XDG_CONFIG_HOME;
-  // Use Bun.spawnSync directly — node:child_process.spawnSync with a custom
-  // `env` is silently a no-op on some Linux runner configurations (returns
-  // status 0 and empty stdio without actually running the child).
   const result = Bun.spawnSync({
-    cmd: [process.execPath, "run", cliPath, ...args],
+    cmd: ["bun", "run", cliPath, ...args],
     env,
+    stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
   return {
     status: result.exitCode,
+    signal: result.signalCode ?? null,
     stdout: new TextDecoder().decode(result.stdout),
     stderr: new TextDecoder().decode(result.stderr),
   };
 }
 
+function expectExit(result: SpawnResult, expected: number): void {
+  if (result.status !== expected) {
+    const signalNote = result.signal ? ` (signal=${result.signal})` : "";
+    throw new Error(
+      `expected exit ${expected}, got ${result.status}${signalNote}\n` +
+        `stdout: ${result.stdout}\nstderr: ${result.stderr}`,
+    );
+  }
+}
+
 test("CLI: ccstatusline-backup end-to-end", () => {
   const homeDir = join(TEST_HOME, "cli-ccs-backup");
   rmSync(homeDir, { recursive: true, force: true });
-  mkdirSync(join(homeDir, ".config", "ccstatusline"), { recursive: true });
-  writeFileSync(join(homeDir, ".config", "ccstatusline", "settings.json"), '{"v":"cli"}', "utf8");
+  try {
+    mkdirSync(join(homeDir, ".config", "ccstatusline"), { recursive: true });
+    writeFileSync(join(homeDir, ".config", "ccstatusline", "settings.json"), '{"v":"cli"}', "utf8");
 
-  const result = spawnCli(["ccstatusline-backup"], homeDir);
-  expect(result.status).toBe(0);
-  expect(result.stdout).toContain("ccstatusline backed up");
+    const result = spawnCli(["ccstatusline-backup"], homeDir);
+    expectExit(result, 0);
+    expect(result.stdout).toContain("ccstatusline backed up");
+
+    const backupDir = join(homeDir, ".claude", "baton", "ccstatusline-backups");
+    const backups = readdirSync(backupDir).filter((f) => f.endsWith(".json"));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(backupDir, backups[0]!), "utf8")).toBe('{"v":"cli"}');
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("CLI: ccstatusline-restore restores latest backup end-to-end", () => {
+  const homeDir = join(TEST_HOME, "cli-ccs-restore-roundtrip");
   rmSync(homeDir, { recursive: true, force: true });
+  try {
+    const ccsPath = join(homeDir, ".config", "ccstatusline", "settings.json");
+    const backupDir = join(homeDir, ".claude", "baton", "ccstatusline-backups");
+    mkdirSync(join(homeDir, ".config", "ccstatusline"), { recursive: true });
+    writeFileSync(ccsPath, '{"v":"original"}', "utf8");
+    expectExit(spawnCli(["ccstatusline-backup"], homeDir), 0);
+
+    const list = spawnCli(["ccstatusline-restore", "--list"], homeDir);
+    expectExit(list, 0);
+    expect(list.stdout).toMatch(/settings-\d{4}-\d{2}-\d{2}T.*\.json/);
+
+    writeFileSync(ccsPath, '{"v":"corrupted"}', "utf8");
+    const restore = spawnCli(["ccstatusline-restore"], homeDir);
+    expectExit(restore, 0);
+    expect(restore.stdout).toContain("ccstatusline restored");
+    expect(readFileSync(ccsPath, "utf8")).toBe('{"v":"original"}');
+
+    const safetyBackups = readdirSync(backupDir).filter((f) =>
+      f.startsWith("settings-pre-restore-"),
+    );
+    expect(safetyBackups).toHaveLength(1);
+    expect(readFileSync(join(backupDir, safetyBackups[0]!), "utf8")).toBe('{"v":"corrupted"}');
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("CLI: ccstatusline-restore <path> restores from explicit backup", () => {
+  const homeDir = join(TEST_HOME, "cli-ccs-restore-explicit");
+  rmSync(homeDir, { recursive: true, force: true });
+  try {
+    const ccsPath = join(homeDir, ".config", "ccstatusline", "settings.json");
+    mkdirSync(join(homeDir, ".config", "ccstatusline"), { recursive: true });
+    writeFileSync(ccsPath, '{"v":"current"}', "utf8");
+    const externalBackup = join(homeDir, "external.json");
+    writeFileSync(externalBackup, '{"v":"explicit"}', "utf8");
+
+    const restore = spawnCli(["ccstatusline-restore", externalBackup], homeDir);
+    expectExit(restore, 0);
+    expect(readFileSync(ccsPath, "utf8")).toBe('{"v":"explicit"}');
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
 });
 
 test("CLI: ccstatusline-restore --list reports empty when no backups exist", () => {
   const homeDir = join(TEST_HOME, "cli-ccs-restore-empty");
   rmSync(homeDir, { recursive: true, force: true });
-  mkdirSync(homeDir, { recursive: true });
+  try {
+    mkdirSync(homeDir, { recursive: true });
 
-  const result = spawnCli(["ccstatusline-restore", "--list"], homeDir);
-  expect(result.status).toBe(0);
-  expect(result.stdout).toContain("No ccstatusline backups found");
-  rmSync(homeDir, { recursive: true, force: true });
+    const result = spawnCli(["ccstatusline-restore", "--list"], homeDir);
+    expectExit(result, 0);
+    expect(result.stdout).toContain("No ccstatusline backups found");
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
 });
 
 test("CLI: ccstatusline-restore fails clearly when there is nothing to restore", () => {
   const homeDir = join(TEST_HOME, "cli-ccs-restore-fail");
   rmSync(homeDir, { recursive: true, force: true });
-  mkdirSync(homeDir, { recursive: true });
+  try {
+    mkdirSync(homeDir, { recursive: true });
 
-  const result = spawnCli(["ccstatusline-restore"], homeDir);
-  expect(result.status).toBe(1);
-  expect(result.stderr).toContain("No ccstatusline backups found");
-  rmSync(homeDir, { recursive: true, force: true });
+    const result = spawnCli(["ccstatusline-restore"], homeDir);
+    expectExit(result, 1);
+    expect(result.stderr).toContain("No ccstatusline backups found");
+  } finally {
+    rmSync(homeDir, { recursive: true, force: true });
+  }
 });
