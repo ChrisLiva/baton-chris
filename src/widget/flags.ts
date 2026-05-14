@@ -12,10 +12,10 @@ export function parseWidgetFlags(argv: string[]): WidgetFlags {
       color = true;
     } else if (arg === "--max-width") {
       const raw = argv[i + 1];
-      i++;
       const n = Number.parseInt(raw ?? "", 10);
       if (Number.isInteger(n) && n > 0 && String(n) === raw) {
         maxWidth = n;
+        i++;
       } else {
         process.stderr.write(`baton widget: invalid --max-width "${raw ?? ""}" — ignored\n`);
       }

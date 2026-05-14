@@ -256,7 +256,7 @@ export function renderBatonBadgeStates(
 export async function runWidget(name: string, argv: string[], raw: string): Promise<void>;
 
 // src/install/settings-patch.ts
-// (no new exports; isCcstatuslineCommand is internal)
+export function isCcstatuslineCommand(cmd: string | undefined): boolean;
 ```
 
 ## Blast radius
