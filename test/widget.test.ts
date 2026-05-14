@@ -39,6 +39,14 @@ describe("parseWidgetFlags", () => {
     expect(parseWidgetFlags(["--max-width", "0"]).maxWidth).toBeUndefined();
     expect(parseWidgetFlags(["--max-width", "-3"]).maxWidth).toBeUndefined();
   });
+  test("--max-width followed by --color does not consume --color", () => {
+    const result = parseWidgetFlags(["--max-width", "--color"]);
+    expect(result.maxWidth).toBeUndefined();
+    expect(result.color).toBe(true);
+  });
+  test("--max-width at end of argv does not crash", () => {
+    expect(parseWidgetFlags(["--max-width"])).toEqual({ color: false, maxWidth: undefined });
+  });
 });
 
 describe("safeParseStatusJSON", () => {
