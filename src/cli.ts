@@ -21,6 +21,14 @@ import {
   printPrune,
   printRecall,
 } from "./baton/archive-library.ts";
+import {
+  backupCcstatusline,
+  listCcstatuslineBackups,
+  restoreCcstatusline,
+  printBackup as printCcsBackup,
+  printRestore as printCcsRestore,
+  printList as printCcsList,
+} from "./install/ccstatusline-backup.ts";
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -58,6 +66,13 @@ function usage(): void {
       "                              as a same-session second opinion (read-only plan mode)",
       "  ccstatusline-setup          print copy-paste instructions for wiring",
       "                              baton widgets into ccstatusline",
+      "  ccstatusline-backup [--out <path>]",
+      "                              snapshot ~/.config/ccstatusline/settings.json",
+      "                              into ~/.claude/baton/ccstatusline-backups/",
+      "  ccstatusline-restore [<path>] [--list]",
+      "                              restore ccstatusline settings.json from the",
+      "                              latest baton-managed backup, or from <path>;",
+      "                              --list shows available backups instead",
       "",
       "Internal (Claude Code pipes data on stdin):",
       "  statusline                  render the statusline",
@@ -79,6 +94,9 @@ function buildCcstatuslineSetup(): string {
   const barCmd = buildCommand("widget context-bar --color --max-width 12");
   return [
     bold("baton + ccstatusline composition"),
+    "",
+    dim("Tip: run `baton ccstatusline-backup` before editing your ccstatusline"),
+    dim("config so you can `baton ccstatusline-restore` if something goes wrong."),
     "",
     "Two baton widgets to add to ccstatusline:",
     "",
@@ -145,6 +163,32 @@ async function main(): Promise<number> {
     case "ccstatusline-setup": {
       process.stdout.write(buildCcstatuslineSetup());
       return 0;
+    }
+    case "ccstatusline-backup": {
+      const outIdx = rest.indexOf("--out");
+      if (outIdx >= 0 && (rest[outIdx + 1] === undefined || rest[outIdx + 1]?.startsWith("--"))) {
+        process.stderr.write("baton ccstatusline-backup: --out requires a path argument\n");
+        return 2;
+      }
+      const out = outIdx >= 0 ? rest[outIdx + 1] : undefined;
+      const outcome = backupCcstatusline({ out });
+      printCcsBackup(outcome);
+      return outcome.sourceExisted ? 0 : 1;
+    }
+    case "ccstatusline-restore": {
+      if (rest.includes("--list")) {
+        printCcsList(listCcstatuslineBackups());
+        return 0;
+      }
+      const fromArg = rest.find((a) => !a.startsWith("--"));
+      try {
+        const result = restoreCcstatusline({ from: fromArg });
+        printCcsRestore(result);
+        return 0;
+      } catch (err) {
+        process.stderr.write(`baton ccstatusline-restore: ${(err as Error).message}\n`);
+        return 1;
+      }
     }
     case "hook": {
       const raw = await readStdin();
