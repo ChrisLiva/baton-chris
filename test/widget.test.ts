@@ -169,3 +169,31 @@ describe("renderBadgeWidget", () => {
     expect(stripAnsi(out).length).toBeLessThanOrEqual(12);
   });
 });
+
+describe("renderContextBarWidget", () => {
+  test("renders bar at 30%", async () => {
+    const { renderContextBarWidget } = await import("../src/widget/context-bar.ts");
+    const out = renderContextBarWidget(
+      { context_window: { used_percentage: 30, context_window_size: 200000 } },
+      { color: false, maxWidth: undefined },
+    );
+    expect(out).toContain("█");
+    expect(out).toContain("/");
+  });
+
+  test("red zone at 70% emits ⚠ BATON NOW", async () => {
+    const { renderContextBarWidget } = await import("../src/widget/context-bar.ts");
+    const out = renderContextBarWidget(
+      { context_window: { used_percentage: 70, context_window_size: 200000 } },
+      { color: false, maxWidth: undefined },
+    );
+    expect(out).toContain("⚠ BATON NOW");
+  });
+
+  test("no tokens (no used_percentage, no transcript) → empty", async () => {
+    const { renderContextBarWidget } = await import("../src/widget/context-bar.ts");
+    expect(
+      renderContextBarWidget({}, { color: false, maxWidth: undefined }),
+    ).toBe("");
+  });
+});
